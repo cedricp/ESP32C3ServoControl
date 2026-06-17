@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
+#include "server.cpp"
 
 #define CRSF_UART_PORT      UART_NUM_1
 #define CRSF_RX_PIN         3        
@@ -145,6 +146,7 @@ void slow_button_task(void *pvParameters) {
                 if (!button_pressed) {
                     button_pressed = true;
                     printf("Button pressed! Entering pairing mode...\n");
+                    start_webserver();
                     blink_led(5, 200); // Visual feedback for button press
                 }
             }
@@ -159,14 +161,26 @@ void slow_button_task(void *pvParameters) {
     }
 }
 
+static inline uint16_t crsf_get_channel(int ch, const uint8_t *payload) {
+    int bit_offset = ch * 11;
+    int byte_index = bit_offset >> 3;        // bit_offset / 8
+    int bit_shift  = bit_offset & 0x07;      // bit_offset % 8
+
+    // Read 3 bytes to guarantee 11 bits are always available regardless of alignment
+    uint32_t raw = (uint32_t)payload[byte_index]
+                 | (uint32_t)payload[byte_index + 1] << 8
+                 | (uint32_t)payload[byte_index + 2] << 16;
+
+    return (raw >> bit_shift) & 0x07FF;
+}
+
 // ==========================================
 // CROSSFIRE UART task
 // ==========================================
 void crsf_rx_task(void *pvParameters) {
-    uint8_t buffer[64];
-    uint16_t crsf_channels[8];
-    servo_data_t tx_data;
-
+    uint8_t buffer[128];   // Larger than one frame — holds overlap
+    int buf_len = 0;
+    
     // Init UART for CRSF reception
     uart_config_t uart_config = {
         .baud_rate = CRSF_BAUD_RATE,
@@ -175,46 +189,86 @@ void crsf_rx_task(void *pvParameters) {
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
+    
     uart_param_config(CRSF_UART_PORT, &uart_config);
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(CRSF_UART_PORT, 1024, 0, 0, NULL, 0);
 
     while (1) {
-        int len = uart_read_bytes(CRSF_UART_PORT, buffer, 1, pdMS_TO_TICKS(20));
+        // Fill whatever space is left in the buffer
+        int bytes_read = uart_read_bytes(
+            CRSF_UART_PORT,
+            buffer + buf_len,
+            sizeof(buffer) - buf_len,
+            pdMS_TO_TICKS(20)
+        );
         
-        if (len > 0 && buffer[0] == 0xC8) {
-            uart_read_bytes(CRSF_UART_PORT, &buffer[1], 1, pdMS_TO_TICKS(10));
-            uint8_t packet_len = buffer[1];
+        if (bytes_read > 0)
+            buf_len += bytes_read;
 
-            if (packet_len <= 62) {
-                uart_read_bytes(CRSF_UART_PORT, &buffer[2], packet_len, pdMS_TO_TICKS(20));
+        // Scan forward for a valid frame start
+        int i = 0;
+        while (i < buf_len) {
 
-                if (buffer[2] == 0x16) {
-                    uint8_t computed_crc = crsf_crc8(&buffer[2], packet_len - 1);
-                    if (computed_crc == buffer[packet_len + 1]) {
-                        
-                        // Channel decoding (11 bits)
-                        uint8_t *payload = &buffer[3];
-                        crsf_channels[0] = ((uint16_t)payload[0]        | (uint16_t)payload[1] << 8)                                    & 0x07FF;
-                        crsf_channels[1] = ((uint16_t)payload[1] >> 3   | (uint16_t)payload[2] << 5)                                    & 0x07FF;
-                        crsf_channels[2] = ((uint16_t)payload[2] >> 6   | (uint16_t)payload[3] << 2  | (uint32_t)payload[4] << 10)     & 0x07FF;
-                        crsf_channels[3] = ((uint16_t)payload[4] >> 1   | (uint16_t)payload[5] << 7)                                    & 0x07FF;
-                        crsf_channels[4] = ((uint16_t)payload[5] >> 4   | (uint16_t)payload[6] << 4)                                    & 0x07FF;
-                        crsf_channels[5] = ((uint16_t)payload[6] >> 7   | (uint16_t)payload[7] << 1  | (uint32_t)payload[8] << 9)      & 0x07FF;
-                        crsf_channels[6] = ((uint16_t)payload[8] >> 2   | (uint16_t)payload[9] << 6)                                    & 0x07FF;
-                        crsf_channels[7] = ((uint16_t)payload[9] >> 5   | (uint32_t)payload[10] << 3 | (uint32_t)payload[11] << 11)    & 0x07FF;
-
-                        
-                        for (int i = 0; i < NUM_SERVOS; i++) {
-                            tx_data.us_values[i] = ((crsf_channels[i] - 992) * 5) / 8 + 1500;
-                        }
-                        
-                        // Send to servo queue
-                        xQueueSend(servo_queue, &tx_data, 0);
-
-                    }
-                }
+            // Step 1: find sync byte
+            if (buffer[i] != 0xC8) {
+                i++;
+                continue;
             }
+
+            // Step 2: do we have enough bytes to read the length field?
+            if (i + 1 >= buf_len)
+                break;  // Wait for more data
+
+            uint8_t packet_len = buffer[i + 1];
+
+            if (packet_len > 62) {
+                // Implausible length — this 0xC8 was a false positive, keep scanning
+                i++;
+                continue;
+            }
+
+            // Step 3: do we have the full frame yet?  (sync + len + payload)
+            int frame_end = i + 2 + packet_len;  // index of last byte + 1
+            if (frame_end > buf_len)
+                break;  // Partial frame — wait for more data, do NOT discard
+
+            // Step 4: check frame type
+            if (buffer[i + 2] != 0x16) {
+                i++;  // False positive sync byte, keep scanning
+                continue;
+            }
+
+            // Step 5: CRC check
+            uint8_t computed_crc = crsf_crc8(&buffer[i + 2], packet_len - 1);
+            if (computed_crc != buffer[frame_end - 1]) {
+                i++;  // CRC failed — this sync byte was not a real frame start
+                continue;
+            }
+
+            // --- Valid frame found at offset i ---
+            uint8_t *payload = &buffer[i + 3];
+
+            uint16_t crsf_channels[8];
+            for (int ch = 0; ch < 8; ch++) {
+                crsf_channels[ch] = crsf_get_channel(ch, payload);
+            }
+
+            servo_data_t tx_data;
+            for (int j = 0; j < NUM_SERVOS; j++)
+                tx_data.us_values[j] = ((crsf_channels[j] - 992) * 5) / 8 + 1500;
+
+            xQueueSend(servo_queue, &tx_data, 0);
+
+            // Advance past the consumed frame
+            i = frame_end;
+        }
+
+        // Shift remaining unprocessed bytes to the front of the buffer
+        if (i > 0) {
+            buf_len -= i;
+            if (buf_len > 0)
+                memmove(buffer, buffer + i, buf_len);
         }
     }
 }
@@ -285,7 +339,7 @@ void app_main(void) {
         xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 9, &servo_task_handle);
     }
 
-    xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 1, &slow_button_task_handle);
+    xTaskCreate(slow_button_task, "slow_button", 4096, NULL, 1, &slow_button_task_handle);
 
     bool led_state = false;
     for(int i = 0; i < 10; i++) {
@@ -305,6 +359,12 @@ void app_main(void) {
             UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(crsf_task_handle);
             
             printf("Remaining stack for Crsf Task: %u words\n", (unsigned int)remaining_stack);
+        }
+
+        if (slow_button_task_handle != NULL) {
+            UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(slow_button_task_handle);
+            
+            printf("Remaining stack for Slow Button Task: %u words\n", (unsigned int)remaining_stack);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
