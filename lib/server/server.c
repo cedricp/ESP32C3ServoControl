@@ -1,3 +1,5 @@
+#include "server.h"
+
 #include "esp_http_server.h"
 
 #include "esp_wifi.h"
@@ -53,6 +55,22 @@ static void wifi_init_softap(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(40)); // 10dBm
+}
+
+int server_is_running(void)
+{
+    return g_server != NULL;
+}
+
+void stop_webserver(void)
+{
+    if (g_server) {
+        httpd_stop(g_server);
+        g_server = NULL;
+        esp_wifi_stop();
+        esp_wifi_deinit();
+    }
 }
 
 void start_webserver(void)

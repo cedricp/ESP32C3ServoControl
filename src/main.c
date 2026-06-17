@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h" 
@@ -8,9 +10,10 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
-#include "server.cpp"
+#include "server.h"
+#include "utils.h"
 
-#define CRSF_UART_PORT      UART_NUM_1
+#define CRSF_UART_PORT      UART_NUM_0
 #define CRSF_RX_PIN         3        
 #define CRSF_TX_PIN         4         
 #define CRSF_BAUD_RATE      420000
@@ -37,17 +40,9 @@ typedef struct {
     uint8_t checksum;
 } failsafe_config_t;
 
-uint8_t crsf_crc8(const uint8_t *ptr, uint8_t len) {
-    uint8_t crc = 0;
-    for (uint8_t i = 0; i < len; i++) {
-        crc ^= ptr[i];
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 0x80) crc = (crc << 1) ^ 0xD5;
-            else crc <<= 1;
-        }
-    }
-    return crc;
-}
+TaskHandle_t servo_task_handle = NULL;
+TaskHandle_t crsf_task_handle = NULL;
+TaskHandle_t slow_button_task_handle = NULL;
 
 void writeFailsafeToNVS() {
     nvs_handle_t my_handle;
@@ -97,16 +92,17 @@ void readFailsafeFromNVS() {
     }
 }
 
-uint32_t us_to_ledc_duty(uint32_t us) {
-    return (us * 16384) / 20000;
-}
-
-void blink_led(int times, int delay_ms) {
+void blink_led(int times, int delay_ms, bool finish_lit) {
     for (int i = 0; i < times; i++) {
         gpio_set_level(ONBOARD_LED_PIN, 1);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
         gpio_set_level(ONBOARD_LED_PIN, 0);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+    if (finish_lit) {
+        gpio_set_level(ONBOARD_LED_PIN, 0);
+    } else {
+        gpio_set_level(ONBOARD_LED_PIN, 1);
     }
 }
 
@@ -146,8 +142,13 @@ void slow_button_task(void *pvParameters) {
                 if (!button_pressed) {
                     button_pressed = true;
                     printf("Button pressed! Entering pairing mode...\n");
-                    start_webserver();
-                    blink_led(5, 200); // Visual feedback for button press
+                    if (!server_is_running()) {
+                        start_webserver();
+                        blink_led(4, 200, true); // Visual feedback for button press
+                    } else {
+                        stop_webserver();
+                        blink_led(4, 200, false); // Visual feedback for button press
+                    }
                 }
             }
         } else {
@@ -159,19 +160,6 @@ void slow_button_task(void *pvParameters) {
         // This yields ALL CPU execution time back to your CRSF and Servo tasks.
         vTaskDelay(pdMS_TO_TICKS(30));
     }
-}
-
-static inline uint16_t crsf_get_channel(int ch, const uint8_t *payload) {
-    int bit_offset = ch * 11;
-    int byte_index = bit_offset >> 3;        // bit_offset / 8
-    int bit_shift  = bit_offset & 0x07;      // bit_offset % 8
-
-    // Read 3 bytes to guarantee 11 bits are always available regardless of alignment
-    uint32_t raw = (uint32_t)payload[byte_index]
-                 | (uint32_t)payload[byte_index + 1] << 8
-                 | (uint32_t)payload[byte_index + 2] << 16;
-
-    return (raw >> bit_shift) & 0x07FF;
 }
 
 // ==========================================
@@ -189,7 +177,7 @@ void crsf_rx_task(void *pvParameters) {
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
-    
+
     uart_param_config(CRSF_UART_PORT, &uart_config);
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(CRSF_UART_PORT, 1024, 0, 0, NULL, 0);
@@ -249,14 +237,10 @@ void crsf_rx_task(void *pvParameters) {
             // --- Valid frame found at offset i ---
             uint8_t *payload = &buffer[i + 3];
 
-            uint16_t crsf_channels[8];
-            for (int ch = 0; ch < 8; ch++) {
-                crsf_channels[ch] = crsf_get_channel(ch, payload);
-            }
-
             servo_data_t tx_data;
-            for (int j = 0; j < NUM_SERVOS; j++)
-                tx_data.us_values[j] = ((crsf_channels[j] - 992) * 5) / 8 + 1500;
+            for (int ch = 0; ch < NUM_SERVOS; ch++) {
+                tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 5) / 8 + 1500;
+            }
 
             xQueueSend(servo_queue, &tx_data, 0);
 
@@ -295,7 +279,7 @@ void servo_update_task(void *pvParameters) {
             .timer_sel      = LEDC_TIMER_0,
             .intr_type      = LEDC_INTR_DISABLE,
             .gpio_num       = servo_gpios[i],
-            .duty           = us_to_ledc_duty(1500), // Neutre au boot
+            .duty           = us_to_ledc_duty(1500), // Neutral at boot
             .hpoint         = 0
         };
         ledc_channel_config(&ledc_channel);
@@ -318,10 +302,6 @@ void servo_update_task(void *pvParameters) {
         }
     }
 }
-
-TaskHandle_t servo_task_handle = NULL;
-TaskHandle_t crsf_task_handle = NULL;
-TaskHandle_t slow_button_task_handle = NULL;
 
 void app_main(void) {
     esp_err_t ret = nvs_flash_init();
