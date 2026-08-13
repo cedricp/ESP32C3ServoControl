@@ -5,9 +5,10 @@ typedef struct {
     float Ki;           // Gain Intégral (corrige les dérives lentes)
     float Kd;           // Gain Dérivé (amortit les oscillations)
     float maxRateDegs;  // Vitesse de rotation maximale (ex: 250.0 deg/s)
+    int invert;        // Inversion du signal de rotation
+    char checksum;
     float integralAcc;  // Accumulateur de l'erreur intégrale
     float prevError;    // Erreur de la boucle précédente
-    int invert;        // Inversion du signal de rotation
 } PID_Config_t;
 
 float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, float max_rate_degs, PID_Config_t* pid);

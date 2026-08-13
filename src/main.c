@@ -44,11 +44,6 @@ int g_ouput_mapping[NUM_SERVOS] = {0, 1, 2, 3, 4, 5};
 uint32_t g_failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
 bool g_invert_channel[NUM_SERVOS] = {0, 0, 0, 0, 0, 0};
 
-struct FailsafePayload {
-    int values[NUM_SERVOS];
-    uint16_t checksum;
-} failsafeData;
-
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t slow_button_task_handle = NULL;
@@ -171,6 +166,15 @@ void test_sequence(const uint32_t *sequence) {
     }
 }
 
+uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, float master_gain, float dt)
+{
+    float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 5);
+    float stickInput = nomaliseStick(stick_us);
+    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid->maxRateDegs ,&pidRoll);
+    if (pid->invert) axis_correction = -axis_correction;
+    return (axis_correction + 1) * 500. + 1000.;
+}
+
 // ==========================================
 // Servo managemenent task
 // ==========================================
@@ -211,17 +215,22 @@ void servo_update_task(void *pvParameters) {
 
     static int64_t last_time = 0;
     int64_t servo_timer = esp_timer_get_time();
+    float master_gain = 0.3f;
 
     while (1) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
 
-        float masterGain = 0.3f;
+        
+        if (rx_data.valid && g_master_gain_channel >= 0 && g_master_gain_channel < 8) {\
+            // Update master gain
+            master_gain = ((float)rx_data.us_values[g_master_gain_channel] - 1000.0f) / 1000.0f;
+        }
 
         if (gyro_data.valid) {
             int64_t now = esp_timer_get_time();
             if (last_time == 0) {
-                last_time = now; // Sécurité première itération
+                last_time = now; // First iteration safety
             }
 
             float dt = (float)(now - last_time) / 1000000.0f;
@@ -230,23 +239,19 @@ void servo_update_task(void *pvParameters) {
             if (dt <= 0.0005f || dt > 0.020f) {
                 dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
             }
-
-            float max_rate_degs = 250.0f;
-            int16_t stick_us = 1500;//rx_data.us_values[0];
-            float targetRate = mapStickToRate(stick_us, max_rate_degs, 5);
-            float stickInput = nomaliseStick(stick_us);
-            float RollAxis = computeAxisPID(stickInput, targetRate, gyro_data.x, dt, masterGain, max_rate_degs ,&pidRoll);
-            rx_data.us_values[0] = (RollAxis + 1) * 500. + 1000.;
+            rx_data.us_values[0] = 1500;
+            rx_data.us_values[0] = computeAxis(&pidRoll, rx_data.us_values[0], gyro_data.x, master_gain, dt);
             rx_data.valid = 1;
         }
         
         int64_t delta = esp_timer_get_time() - servo_timer;
         if (delta > 20000) {
-            // 50 Hz refresh
+            // 50 Hz refresh (200 ms)
             servo_timer = esp_timer_get_time();
             if (rx_data.valid) {
                 for (int i = 0; i < NUM_SERVOS; i++) {
-                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(rx_data.us_values[i]));
+                    uint16_t us = rx_data.us_values[g_ouput_mapping[i]];
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(us));
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
                 }
                 radio_init = true;
@@ -286,7 +291,6 @@ void app_main(void) {
 
     vTaskDelay(3000);
 
-    readFailsafeFromNVS((char*)&failsafeData.values, (char*)&failsafeData.checksum);
 #ifdef DEBUG_STACK
     while (1) {
         if (servo_task_handle != NULL) {
