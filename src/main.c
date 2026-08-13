@@ -6,60 +6,58 @@
 #include "freertos/queue.h" 
 #include "driver/uart.h"
 #include "driver/ledc.h"
+#include "esp_timer.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
 
+#include "gyro_task.h"
+
 #include "server.h"
 #include "utils.h"
+#include "crsf_task.h"
+#include "types.h"
 
-#define CRSF_UART_PORT      UART_NUM_0
-#define CRSF_RX_PIN         3        
-#define CRSF_TX_PIN         4         
-#define CRSF_BAUD_RATE      420000
-#define NUM_SERVOS          6
+#include "pid.h"
+
+
 #define ONBOARD_LED_PIN     8
 #define PAIRING_BUTTON_PIN  9
-#define CRSF_TIMEOUT_MS     250
 
 const int servo_gpios[NUM_SERVOS] = {5, 6, 7, 10, 2, 0};
-const uint32_t failsafe_us[NUM_SERVOS] = {1500, 1500, 990, 1500, 1500, 1500};
-QueueHandle_t servo_queue = NULL;
+const uint32_t failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
+
+const uint32_t test_sequence_us_1[NUM_SERVOS] = {990, 1000, 2000, 1000, 1000, 1000};
+const uint32_t test_sequence_us_2[NUM_SERVOS] = {1500, 1500, 2000, 1500, 1000, 1500};
+const uint32_t test_sequence_us_3[NUM_SERVOS] = {2000, 2000, 2000, 2000, 1000, 2000};
+
+PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.01f, 250.f, .integralAcc = 0.0, .prevError = 0.0 };
+PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.01f, 150.f, .integralAcc = 0.0, .prevError = 0.0 };
+PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.02f, 120.f, .integralAcc = 0.0, .prevError = 0.0 };
+
 
 struct FailsafePayload {
     int values[NUM_SERVOS];
     uint16_t checksum;
 } failsafeData;
 
-typedef struct {
-    uint16_t us_values[NUM_SERVOS];
-} servo_data_t;
-
-typedef struct {
-    uint32_t channels[NUM_SERVOS];
-    uint8_t checksum;
-} failsafe_config_t;
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t slow_button_task_handle = NULL;
+TaskHandle_t gyro_task_handle = NULL;
 
-void writeFailsafeToNVS() {
+void writeFailsafeToNVS(char* start_byte, char* checksum_byte) {
     nvs_handle_t my_handle;
     esp_err_t err;
+    size_t size = checksum_byte - start_byte + 1;
 
-    // TODO: Replace with actual failsafe values from your application
-    failsafe_config_t config;
-    for (int i = 0; i < NUM_SERVOS; i++) {
-        config.channels[i] = failsafe_us[i];
-    }
-
-    config.checksum = crsf_crc8((uint8_t*)&config.channels, NUM_SERVOS * sizeof(uint32_t));
+    checksum_byte[0] = crsf_crc8((uint8_t*)start_byte, size-1);
 
     err = nvs_open("storage", NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return;
 
-    err = nvs_set_blob(my_handle, "fs_config", &config, sizeof(failsafe_config_t));
+    err = nvs_set_blob(my_handle, "fs_config", start_byte, size);
     if (err == ESP_OK) {
         nvs_commit(my_handle); // Validation de la gravure en Flash
         printf("Failsafe configuration reset to defaults and saved to NVS.\n");
@@ -71,17 +69,17 @@ void writeFailsafeToNVS() {
 }
 
 
-void readFailsafeFromNVS() {
+void readFailsafeFromNVS(char* start_byte, char* checksum_byte) {
     nvs_handle_t my_handle;
     esp_err_t err;
-    size_t required_size = sizeof(failsafe_config_t);
+    size_t required_size = checksum_byte - start_byte + 1;
 
     failsafe_config_t config;
 
     err = nvs_open("storage", NVS_READONLY, &my_handle);
     if (err == ESP_OK) {
         err = nvs_get_blob(my_handle, "fs_config", &config, &required_size);
-        uint8_t calculated_crc = crsf_crc8((uint8_t*)&config.channels, NUM_SERVOS * sizeof(uint32_t));
+        uint8_t calculated_crc = crsf_crc8((uint8_t*)&config.channels, required_size-1);
 
         if (err == ESP_OK && config.checksum == calculated_crc) {
             printf("Failsafe configuration loaded from NVS.\n");
@@ -89,6 +87,9 @@ void readFailsafeFromNVS() {
             printf("No failsafe configuration found in NVS, using defaults.\n");
         }
         nvs_close(my_handle);
+    } else {
+        printf("Error opening NVS handle, creating defaults: %s\n", esp_err_to_name(err));
+        writeFailsafeToNVS(start_byte, checksum_byte);
     }
 }
 
@@ -105,8 +106,6 @@ void blink_led(int times, int delay_ms, bool finish_lit) {
         gpio_set_level(ONBOARD_LED_PIN, 1);
     }
 }
-
-
 
 // ==========================================
 // Failsafe button task
@@ -135,7 +134,6 @@ void slow_button_task(void *pvParameters) {
     bool button_pressed = false;
 
     while (1) {
-        // 2. Read the active-low button (0 = pressed, 1 = released)
         if (gpio_get_level(PAIRING_BUTTON_PIN) == 0) {
             stable_count++;
             if (stable_count >= 2) { // Must be low for 2 consecutive reads (approx 60ms)
@@ -156,104 +154,15 @@ void slow_button_task(void *pvParameters) {
             button_pressed = false;
         }
 
-        // 3. The secret sauce: Sleep for 30ms. 
-        // This yields ALL CPU execution time back to your CRSF and Servo tasks.
         vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
 
-// ==========================================
-// CROSSFIRE UART task
-// ==========================================
-void crsf_rx_task(void *pvParameters) {
-    uint8_t buffer[128];   // Larger than one frame — holds overlap
-    int buf_len = 0;
-    
-    // Init UART for CRSF reception
-    uart_config_t uart_config = {
-        .baud_rate = CRSF_BAUD_RATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-    };
 
-    uart_param_config(CRSF_UART_PORT, &uart_config);
-    uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(CRSF_UART_PORT, 1024, 0, 0, NULL, 0);
-
-    while (1) {
-        // Fill whatever space is left in the buffer
-        int bytes_read = uart_read_bytes(
-            CRSF_UART_PORT,
-            buffer + buf_len,
-            sizeof(buffer) - buf_len,
-            pdMS_TO_TICKS(20)
-        );
-        
-        if (bytes_read > 0)
-            buf_len += bytes_read;
-
-        // Scan forward for a valid frame start
-        int i = 0;
-        while (i < buf_len) {
-
-            // Step 1: find sync byte
-            if (buffer[i] != 0xC8) {
-                i++;
-                continue;
-            }
-
-            // Step 2: do we have enough bytes to read the length field?
-            if (i + 1 >= buf_len)
-                break;  // Wait for more data
-
-            uint8_t packet_len = buffer[i + 1];
-
-            if (packet_len > 62) {
-                // Implausible length — this 0xC8 was a false positive, keep scanning
-                i++;
-                continue;
-            }
-
-            // Step 3: do we have the full frame yet?  (sync + len + payload)
-            int frame_end = i + 2 + packet_len;  // index of last byte + 1
-            if (frame_end > buf_len)
-                break;  // Partial frame — wait for more data, do NOT discard
-
-            // Step 4: check frame type
-            if (buffer[i + 2] != 0x16) {
-                i++;  // False positive sync byte, keep scanning
-                continue;
-            }
-
-            // Step 5: CRC check
-            uint8_t computed_crc = crsf_crc8(&buffer[i + 2], packet_len - 1);
-            if (computed_crc != buffer[frame_end - 1]) {
-                i++;  // CRC failed — this sync byte was not a real frame start
-                continue;
-            }
-
-            // --- Valid frame found at offset i ---
-            uint8_t *payload = &buffer[i + 3];
-
-            servo_data_t tx_data;
-            for (int ch = 0; ch < NUM_SERVOS; ch++) {
-                tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 5) / 8 + 1500;
-            }
-
-            xQueueSend(servo_queue, &tx_data, 0);
-
-            // Advance past the consumed frame
-            i = frame_end;
-        }
-
-        // Shift remaining unprocessed bytes to the front of the buffer
-        if (i > 0) {
-            buf_len -= i;
-            if (buf_len > 0)
-                memmove(buffer, buffer + i, buf_len);
-        }
+void test_sequence(const uint32_t *sequence) {
+    for (int i = 0; i < NUM_SERVOS; i++) {
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(sequence[i]));
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
     }
 }
 
@@ -262,6 +171,8 @@ void crsf_rx_task(void *pvParameters) {
 // ==========================================
 void servo_update_task(void *pvParameters) {
     servo_data_t rx_data;
+    gyro_data_t gyro_data;
+    bool radio_init = false;
 
     ledc_timer_config_t ledc_timer = {
         .speed_mode       = LEDC_LOW_SPEED_MODE,
@@ -285,48 +196,90 @@ void servo_update_task(void *pvParameters) {
         ledc_channel_config(&ledc_channel);
     }
 
+    vTaskDelay(pdMS_TO_TICKS(500));
+    test_sequence(test_sequence_us_1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    test_sequence(test_sequence_us_2);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    test_sequence(test_sequence_us_3);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    static int64_t last_time = 0;
+    int64_t servo_timer = esp_timer_get_time();
+
     while (1) {
-        if (xQueueReceive(servo_queue, &rx_data, pdMS_TO_TICKS(CRSF_TIMEOUT_MS)) == pdTRUE) {
-            
-            for (int i = 0; i < NUM_SERVOS; i++) {
-                ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(rx_data.us_values[i]));
-                ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
+        get_servo_data(&rx_data);
+        get_gyro_data(&gyro_data);
+
+        if (gyro_data.valid) {
+            int64_t now = esp_timer_get_time();
+            if (last_time == 0) {
+                last_time = now; // Sécurité première itération
             }
-        } else {
-            // --- FAILSAFE MODE ---
-            // No data since 250ms, set all servos to failsafe values
-            for (int i = 0; i < NUM_SERVOS; i++) {
-                ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(failsafe_us[i]));
-                ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
+
+            float dt = (float)(now - last_time) / 1000000.0f;
+            last_time = now;
+
+            if (dt <= 0.0005f || dt > 0.020f) {
+                dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
+            }
+
+            float max_rate_degs = 250.0f;
+            float masterGain = 0.6f;
+            int16_t stick_us = 1500;//rx_data.us_values[0];
+            float targetRate = mapStickToRate(stick_us, max_rate_degs, 5);
+            float stickInput = nomaliseStick(stick_us);
+            float RollAxis = computeAxisPID(stickInput, targetRate, gyro_data.x, dt, masterGain, max_rate_degs ,&pidRoll);
+            rx_data.us_values[0] = (RollAxis + 1) * 500. + 1000.;
+            rx_data.valid = 1;
+        }
+        
+        int64_t delta = esp_timer_get_time() - servo_timer;
+        if (delta > 20000) {
+            // 50 Hz refresh
+            servo_timer = esp_timer_get_time();
+            if (rx_data.valid) {
+                for (int i = 0; i < NUM_SERVOS; i++) {
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(rx_data.us_values[i]));
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
+                }
+                radio_init = true;
+            } else if (radio_init) {
+                // --- FAILSAFE MODE ---
+                // No data since 250ms, set all servos to failsafe values
+                for (int i = 0; i < NUM_SERVOS; i++) {
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(failsafe_us[i]));
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
+                }
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 void app_main(void) {
+    // Check EEPROM initialization
     esp_err_t ret = nvs_flash_init();
-    
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
 
-    servo_queue = xQueueCreate(2, sizeof(servo_data_t));
+    blink_led(4, 200, true); // Visual feedback for button press
 
-    if (servo_queue != NULL) {
-        xTaskCreate(crsf_rx_task, "crsf_rx", 3072, NULL, 10, &crsf_task_handle);
-        xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 9, &servo_task_handle);
-    }
+    xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 10, &crsf_task_handle);
+    xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 9, &servo_task_handle);
+    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 9, &gyro_task_handle);
+    xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 1, &slow_button_task_handle);
 
-    xTaskCreate(slow_button_task, "slow_button", 4096, NULL, 1, &slow_button_task_handle);
+    start_webserver();
 
-    bool led_state = false;
-    for(int i = 0; i < 10; i++) {
-        gpio_set_level(ONBOARD_LED_PIN, led_state);
-        led_state = !led_state;
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    // /!\ No delay here, we must send commands as soon as possible for ESC config
+
+    vTaskDelay(3000);
+
+    readFailsafeFromNVS((char*)&failsafeData.values, (char*)&failsafeData.checksum);
 
     while (1) {
         if (servo_task_handle != NULL) {
@@ -345,6 +298,12 @@ void app_main(void) {
             UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(slow_button_task_handle);
             
             printf("Remaining stack for Slow Button Task: %u words\n", (unsigned int)remaining_stack);
+        }
+
+        if (gyro_task_handle != NULL) {
+            UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(gyro_task_handle);
+            
+            printf("Remaining stack for Gyro Button Task: %u words\n", (unsigned int)remaining_stack);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
