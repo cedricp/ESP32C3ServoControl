@@ -20,27 +20,34 @@
 
 #include "pid.h"
 
-
 #define ONBOARD_LED_PIN     8
 #define PAIRING_BUTTON_PIN  9
 
+// #define DEBUG_STACK 1
+
 const int servo_gpios[NUM_SERVOS] = {5, 6, 7, 10, 2, 0};
-const uint32_t failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
 
 const uint32_t test_sequence_us_1[NUM_SERVOS] = {990, 1000, 2000, 1000, 1000, 1000};
 const uint32_t test_sequence_us_2[NUM_SERVOS] = {1500, 1500, 2000, 1500, 1000, 1500};
 const uint32_t test_sequence_us_3[NUM_SERVOS] = {2000, 2000, 2000, 2000, 1000, 2000};
 
-PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.01f, 250.f, .integralAcc = 0.0, .prevError = 0.0 };
-PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.01f, 150.f, .integralAcc = 0.0, .prevError = 0.0 };
-PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.02f, 120.f, .integralAcc = 0.0, .prevError = 0.0 };
+PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.01f, 250.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
+PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.01f, 150.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
+PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.02f, 120.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
 
+PID_Config_t* get_pid_roll(void) { return &pidRoll; }
+PID_Config_t* get_pid_pitch(void) { return &pidPitch; }
+PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
+
+int g_master_gain_channel = 6;
+int g_ouput_mapping[NUM_SERVOS] = {0, 1, 2, 3, 4, 5};
+uint32_t g_failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
+bool g_invert_channel[NUM_SERVOS] = {0, 0, 0, 0, 0, 0};
 
 struct FailsafePayload {
     int values[NUM_SERVOS];
     uint16_t checksum;
 } failsafeData;
-
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
@@ -67,7 +74,6 @@ void writeFailsafeToNVS(char* start_byte, char* checksum_byte) {
 
     nvs_close(my_handle);
 }
-
 
 void readFailsafeFromNVS(char* start_byte, char* checksum_byte) {
     nvs_handle_t my_handle;
@@ -158,7 +164,6 @@ void slow_button_task(void *pvParameters) {
     }
 }
 
-
 void test_sequence(const uint32_t *sequence) {
     for (int i = 0; i < NUM_SERVOS; i++) {
         ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(sequence[i]));
@@ -211,6 +216,8 @@ void servo_update_task(void *pvParameters) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
 
+        float masterGain = 0.3f;
+
         if (gyro_data.valid) {
             int64_t now = esp_timer_get_time();
             if (last_time == 0) {
@@ -225,7 +232,6 @@ void servo_update_task(void *pvParameters) {
             }
 
             float max_rate_degs = 250.0f;
-            float masterGain = 0.6f;
             int16_t stick_us = 1500;//rx_data.us_values[0];
             float targetRate = mapStickToRate(stick_us, max_rate_degs, 5);
             float stickInput = nomaliseStick(stick_us);
@@ -248,7 +254,7 @@ void servo_update_task(void *pvParameters) {
                 // --- FAILSAFE MODE ---
                 // No data since 250ms, set all servos to failsafe values
                 for (int i = 0; i < NUM_SERVOS; i++) {
-                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(failsafe_us[i]));
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(g_failsafe_us[i]));
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
                 }
             }
@@ -266,12 +272,13 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    blink_led(4, 200, true); // Visual feedback for button press
+    
+    xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 5, &slow_button_task_handle);
+    xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
+    xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 20, &servo_task_handle);
+    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
 
-    xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 10, &crsf_task_handle);
-    xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 9, &servo_task_handle);
-    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 9, &gyro_task_handle);
-    xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 1, &slow_button_task_handle);
+    blink_led(4, 200, false);
 
     start_webserver();
 
@@ -280,7 +287,7 @@ void app_main(void) {
     vTaskDelay(3000);
 
     readFailsafeFromNVS((char*)&failsafeData.values, (char*)&failsafeData.checksum);
-
+#ifdef DEBUG_STACK
     while (1) {
         if (servo_task_handle != NULL) {
             UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(servo_task_handle);
@@ -308,4 +315,5 @@ void app_main(void) {
 
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+#endif
 }

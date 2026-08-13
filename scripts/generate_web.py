@@ -1,0 +1,40 @@
+import gzip
+import os
+import glob
+
+def generate_html_header(html_path):
+    basename = os.path.basename(html_path)
+    header_path = os.path.join("include", f"{basename}.h")
+
+    if not os.path.exists(html_path):
+        print(f"[Web Build] Erreur : {html_path} introuvable.")
+        return
+
+    # 1. Lecture du fichier HTML
+    with open(html_path, "rb") as f_in:
+        content = f_in.read()
+
+    # 2. Compression Gzip au niveau maximum (-9)
+    compressed = gzip.compress(content, compresslevel=9)
+
+    # 3. Formatage en tableau C (hex)
+    hex_bytes = [f"0x{b:02x}" for b in compressed]
+    lines = []
+    for i in range(0, len(hex_bytes), 12):
+        lines.append("  " + ", ".join(hex_bytes[i:i+12]) + ",")
+
+    # 4. Écriture du fichier .h
+    with open(header_path, "w", encoding="utf-8") as f_out:
+        f_out.write("// Fichier généré automatiquement - NE PAS MODIFIER\n")
+        f_out.write("#ifndef INDEX_HTML_GZ_H\n#define INDEX_HTML_GZ_H\n\n")
+        f_out.write("const unsigned char index_html_gz[] = {\n")
+        f_out.write("\n".join(lines) + "\n};\n\n")
+        f_out.write(f"const unsigned int index_html_gz_len = {len(compressed)};\n\n")
+        f_out.write("#endif // INDEX_HTML_GZ_H\n")
+
+    print(f"[Web Build] {html_path} -> {header_path} ({len(content)} B -> {len(compressed)} B Gzipped)")
+
+files = glob.glob("html/*.html")
+for file in files:
+    print(f"[Web Build] Compilation de {file}")
+    generate_html_header(file)
