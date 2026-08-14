@@ -7,6 +7,7 @@
 #include "driver/uart.h"
 #include "driver/ledc.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -23,6 +24,8 @@
 #define ONBOARD_LED_PIN     8
 #define PAIRING_BUTTON_PIN  9
 
+#define NVS_NAMESPACE "storage"
+
 // #define DEBUG_STACK 1
 
 const int servo_gpios[NUM_SERVOS] = {5, 6, 7, 10, 2, 0};
@@ -31,67 +34,117 @@ const uint32_t test_sequence_us_1[NUM_SERVOS] = {990, 1000, 2000, 1000, 1000, 10
 const uint32_t test_sequence_us_2[NUM_SERVOS] = {1500, 1500, 2000, 1500, 1000, 1500};
 const uint32_t test_sequence_us_3[NUM_SERVOS] = {2000, 2000, 2000, 2000, 1000, 2000};
 
-PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.0001f, 250.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
-PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.0001f, 150.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
-PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.0002f, 120.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
+PID_Config_t pidRoll;
+PID_Config_t pidPitch;
+PID_Config_t pidYaw;
 
 PID_Config_t* get_pid_roll(void) { return &pidRoll; }
 PID_Config_t* get_pid_pitch(void) { return &pidPitch; }
 PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
 
 int g_master_gain_channel = 5;
-int g_ouput_mapping[NUM_SERVOS] = {0, 1, 2, 3, 4, 5};
-uint32_t g_failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
-bool g_invert_channel[NUM_SERVOS] = {0, 0, 0, 0, 0, 0};
+int g_ouput_mapping[NUM_SERVOS];;
+uint32_t g_failsafe_us[NUM_SERVOS];
+bool g_invert_channel[NUM_SERVOS];
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t slow_button_task_handle = NULL;
 TaskHandle_t gyro_task_handle = NULL;
 
-void writeFailsafeToNVS(char* start_byte, char* checksum_byte) {
-    nvs_handle_t my_handle;
-    esp_err_t err;
-    size_t size = checksum_byte - start_byte + 1;
+void init_pid(PID_Config_t* pid, float Kp, float Ki, float Kd, float maxRateDegs, bool invert)
+{
+    pid->Kp = Kp;
+    pid->Ki = Ki;
+    pid->Kd = Kd;
+    pid->maxRateDegs = maxRateDegs;
+    pid->invert = invert;
 
-    checksum_byte[0] = crsf_crc8((uint8_t*)start_byte, size-1);
-
-    err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    if (err != ESP_OK) return;
-
-    err = nvs_set_blob(my_handle, "fs_config", start_byte, size);
-    if (err == ESP_OK) {
-        nvs_commit(my_handle); // Validation de la gravure en Flash
-        printf("Failsafe configuration reset to defaults and saved to NVS.\n");
-    } else {
-        printf("Error writing failsafe configuration to NVS: %s\n", esp_err_to_name(err));
-    }
-
-    nvs_close(my_handle);
+    pid->integralAcc = 0.0f;
+    pid->prevMeasuredRate = 0.0f;
 }
 
-void readFailsafeFromNVS(char* start_byte, char* checksum_byte) {
-    nvs_handle_t my_handle;
-    esp_err_t err;
-    size_t required_size = checksum_byte - start_byte + 1;
 
-    failsafe_config_t config;
+esp_err_t nvs_save_struct(const char *key, const void *data, size_t size) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
 
-    err = nvs_open("storage", NVS_READONLY, &my_handle);
+    // Écriture du bloc mémoire brut (BLOB)
+    err = nvs_set_blob(handle, key, data, size);
     if (err == ESP_OK) {
-        err = nvs_get_blob(my_handle, "fs_config", &config, &required_size);
-        uint8_t calculated_crc = crsf_crc8((uint8_t*)&config.channels, required_size-1);
-
-        if (err == ESP_OK && config.checksum == calculated_crc) {
-            printf("Failsafe configuration loaded from NVS.\n");
-        } else {
-            printf("No failsafe configuration found in NVS, using defaults.\n");
-        }
-        nvs_close(my_handle);
+        err = nvs_commit(handle); // Validation de l'écriture en Flash
     } else {
-        printf("Error opening NVS handle, creating defaults: %s\n", esp_err_to_name(err));
-        writeFailsafeToNVS(start_byte, checksum_byte);
+        ESP_LOGE("NVS", "Failed to write key %s", key);
     }
+
+    nvs_close(handle);
+    return err;
+}
+
+// --- CHARGER UNE STRUCTURE DEPUIS LA NVS ---
+esp_err_t nvs_load_struct(const char *key, void *data, size_t size) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) return err;
+
+    size_t required_size = size;
+    err = nvs_get_blob(handle, key, data, &required_size);
+    nvs_close(handle);
+
+    // Vérifie que la clé existe ET que la taille enregistrée correspond à la structure actuelle
+    if (err == ESP_OK && required_size != size) {
+        ESP_LOGE("NVS", "Failed to load key (length mismatch) %s", key);
+        return ESP_ERR_NVS_INVALID_LENGTH;
+    } else if (err != ESP_OK) {
+        ESP_LOGE("NVS", "Failed to load key %s", key);
+        return err;
+    }
+
+    return err;
+}
+
+void savePidConfig()
+{
+    nvs_save_struct("pid_roll", &pidRoll, sizeof(PID_Config_t));
+    nvs_save_struct("pid_pitch", &pidPitch, sizeof(PID_Config_t));
+    nvs_save_struct("pid_yaw", &pidYaw, sizeof(PID_Config_t));
+}
+
+void loadPidConfig()
+{
+    nvs_load_struct("pid_roll", &pidRoll, sizeof(PID_Config_t));
+    nvs_load_struct("pid_pitch", &pidPitch, sizeof(PID_Config_t));
+    nvs_load_struct("pid_yaw", &pidYaw, sizeof(PID_Config_t));
+}
+
+void savePWMConfig()
+{
+    nvs_save_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
+    nvs_save_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
+    nvs_save_struct("pwm_failsafe", g_failsafe_us, sizeof(g_failsafe_us));
+}   
+
+void loadPWMConfig()
+{
+    nvs_load_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
+    nvs_load_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
+    nvs_load_struct("pwm_failsafe", g_failsafe_us, sizeof(g_invert_channel));
+}
+
+void init_pid_factory()
+{
+    g_master_gain_channel = 5;
+    init_pid(&pidRoll,  0.5f, 0.0f, 0.0001f, 250.f, false);
+    init_pid(&pidPitch, 0.6f, 0.0f, 0.0001f, 150.f, false);
+    init_pid(&pidYaw,   0.7f, 0.0f, 0.0002f, 120.f, false);
+}
+
+void init_pwm_factory()
+{
+    memcpy(g_ouput_mapping, (int[]){0, 1, 2, 3, 4, 5}, sizeof(g_ouput_mapping));
+    memcpy(g_invert_channel, (bool[]){0, 0, 0, 0, 0, 0}, sizeof(g_invert_channel));
+    memcpy(g_failsafe_us, (int[]){1500, 1500, 1000, 1500, 1500, 1500}, sizeof(g_failsafe_us));
 }
 
 void blink_led(int times, int delay_ms, bool finish_lit) {
@@ -291,8 +344,14 @@ void app_main(void) {
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    init_pid_factory();
+    init_pwm_factory();
+
+    loadPidConfig();
+    loadPWMConfig();
     
-    xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 5, &slow_button_task_handle);
+    xTaskCreate(slow_button_task, "slow_button", 8192, NULL, 5, &slow_button_task_handle);
     xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
     xTaskCreate(servo_update_task, "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);

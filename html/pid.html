@@ -277,7 +277,12 @@
         <div class="actions">
             <button type="button" id="saveBtn" onclick="saveConfig()">Save PID config</button>
         </div>
+        
         <div id="status"></div>
+
+        <div class="actions">
+            <button type="button" id="factoryBtn" onclick="initFactory()">Restore factory defaults</button>
+        </div>
     </form>
 </div>
 
@@ -322,6 +327,33 @@
             }
         })
         .catch(err => console.log('Utilisation des valeurs par défaut (hors-ligne)'));
+    }
+
+    function initFactory() {
+        const btn = document.getElementById('factoryBtn');
+        const status = document.getElementById('status');
+
+        fetch('/api/pidfactory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (res.ok) {
+                status.className = 'success';
+                status.textContent = "Parameters restored!";
+            } else {
+                throw new Error("Erreur serveur");
+            }
+        })
+        .catch(err => {
+            status.className = 'error';
+            status.textContent = "Failed to restore parameters.";
+        })
+        .finally(() => {
+            btn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 4000);
+        });
+        loadConfig();
     }
 
     function saveConfig() {

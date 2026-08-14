@@ -19,6 +19,7 @@
 
 static httpd_handle_t g_server = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
+static esp_netif_t *esp_netif_handle = NULL;
 
 #define DNS_PORT 53
 #define WIFI_SSID "FLIGHT_CON"
@@ -30,6 +31,11 @@ extern int g_master_gain_channel;
 extern int g_ouput_mapping[NUM_SERVOS];
 extern uint32_t g_failsafe_us[NUM_SERVOS];
 extern bool g_invert_channel[NUM_SERVOS];
+
+extern void init_pid_factory(void);
+extern void init_pwm_factory(void);
+extern void savePidConfig(void);
+extern void savePWMConfig(void);
 
 static void dhcp_set_captiveportal_url(void) {
     // get the IP of the access point to redirect to
@@ -121,9 +127,23 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
     cJSON_Delete(json);
 
+    savePidConfig();
+
     // Optionnel : Sauvegarder dans la NVS Flash ici
     // save_config_to_nvs();
 
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+esp_err_t config_factorypid_handler(httpd_req_t *req) {
+    init_pid_factory();
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+esp_err_t config_factorypwm_handler(httpd_req_t *req) {
+    init_pwm_factory();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -189,6 +209,8 @@ esp_err_t config_postpwm_handler(httpd_req_t *req) {
     if (item) g_failsafe_us[5] = item->valueint;
 
     cJSON_Delete(json);
+
+    savePWMConfig();
 
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
@@ -331,6 +353,11 @@ void stop_webserver(void)
         g_server = NULL;
         esp_wifi_stop();
         esp_wifi_deinit();
+        if (esp_netif_handle) {
+            esp_netif_destroy(esp_netif_handle);
+            esp_netif_handle = NULL;
+        }
+        ESP_ERROR_CHECK(esp_event_loop_delete_default());
     }
     
     stop_dns_server(dns_server_handle);
@@ -342,7 +369,7 @@ void start_webserver(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    esp_netif_create_default_wifi_ap();
+    esp_netif_handle = esp_netif_create_default_wifi_ap();
 
     wifi_init_softap();
 
@@ -375,7 +402,7 @@ void start_webserver(void)
             .user_ctx  = NULL
         };
 
-            static const httpd_uri_t uri_configpwm_post = {
+        static const httpd_uri_t uri_configpwm_post = {
             .uri       = "/api/configpwm",
             .method    = HTTP_POST,
             .handler   = config_postpwm_handler, // Votre fonction
@@ -388,6 +415,20 @@ void start_webserver(void)
             .handler   = config_get_handler, // À implémenter pour renvoyer le JSON actuel
             .user_ctx  = NULL
         };
+
+        static const httpd_uri_t uri_factorypid_post = {
+            .uri       = "/api/pidfactory",
+            .method    = HTTP_POST,
+            .handler   = config_factorypid_handler, // Votre fonction
+            .user_ctx  = NULL
+        };
+
+        static const httpd_uri_t uri_factorypwm_post = {
+            .uri       = "/api/pwmfactory",
+            .method    = HTTP_POST,
+            .handler   = config_factorypwm_handler, // Votre fonction
+            .user_ctx  = NULL
+        };
         
         httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, http_404_error_handler);
         httpd_register_uri_handler(g_server, &root);
@@ -395,6 +436,8 @@ void start_webserver(void)
         httpd_register_uri_handler(g_server, &uri_config_get);
         httpd_register_uri_handler(g_server, &uri_config_post);
         httpd_register_uri_handler(g_server, &uri_configpwm_post);
+        httpd_register_uri_handler(g_server, &uri_factorypid_post);
+        httpd_register_uri_handler(g_server, &uri_factorypwm_post);
     }
 
     dns_server_config_t dns_config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);

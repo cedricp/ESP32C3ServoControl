@@ -155,7 +155,7 @@
         button:hover { background-color: var(--accent-hover); }
         button:disabled { background-color: #444; cursor: not-allowed; }
 
-        #status {
+        #statusPWM {
             text-align: center;
             margin-top: 15px;
             font-size: 0.9rem;
@@ -179,10 +179,11 @@
         <h1>PWM Outputs</h1>
         <p class="subtitle">ESP32-C3 Flight Controller</p>
     </header>
-
+    
+    <div class="forms-wrapper">
         <form id="Channel0">   
             <div class="card">
-                <h2>PWM Ouput 0</h2>
+                <h2>PWM Output 0</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 0 output mapping</span>
@@ -201,7 +202,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel0" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel0">
                         </label>
                     </div>
@@ -216,7 +217,7 @@
 
         <form id="Channel1">   
             <div class="card">
-                <h2>PWM Ouput 1</h2>
+                <h2>PWM Output 1</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 1 output mapping</span>
@@ -235,7 +236,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel1" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel1">
                         </label>
                     </div>
@@ -250,7 +251,7 @@
 
         <form id="Channel2">   
             <div class="card">
-                <h2>PWM Ouput 2</h2>
+                <h2>PWM Output 2</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 2 output mapping</span>
@@ -269,7 +270,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel2" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel2">
                         </label>
                     </div>
@@ -284,7 +285,7 @@
 
         <form id="Channel3">   
             <div class="card">
-                <h2>PWM Ouput 3</h2>
+                <h2>PWM Output 3</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 3 output mapping</span>
@@ -303,7 +304,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel3" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel3">
                         </label>
                     </div>
@@ -318,7 +319,7 @@
 
         <form id="Channel4">   
             <div class="card">
-                <h2>PWM Ouput 4</h2>
+                <h2>PWM Output 4</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 4 output mapping</span>
@@ -337,7 +338,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel4" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel4">
                         </label>
                     </div>
@@ -352,7 +353,7 @@
 
         <form id="Channel5">   
             <div class="card">
-                <h2>PWM Ouput 5</h2>
+                <h2>PWM Output 5</h2>
                 <div class="control-group">
                     <div class="control-label">
                         <span>Channel 5 output mapping</span>
@@ -371,7 +372,7 @@
                     
                     <div class="control-group checkbox-group">
                         <label for="invert_channel5" class="checkbox-label">
-                            <span>Invert ouput</span>
+                            <span>Invert output</span>
                             <input type="checkbox" id="invert_channel5">
                         </label>
                     </div>
@@ -387,9 +388,13 @@
         <div class="actions">
             <button type="button" id="saveBtnPWM" onclick="saveConfigPWM()">Save PWM config</button>
         </div>
+        
         <div id="statusPWM"></div>
 
-    </form>
+        <div class="actions">
+            <button type="button" id="factoryBtn" onclick="initFactory()">Restore factory defaults</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -427,6 +432,33 @@
             }
         })
         .catch(err => console.log('Utilisation des valeurs par défaut (hors-ligne)'));
+    }
+
+    function initFactory() {
+        const btn = document.getElementById('factoryBtn');
+        const status = document.getElementById('statusPWM');
+
+        fetch('/api/pwmfactory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (res.ok) {
+                status.className = 'success';
+                status.textContent = "Parameters restored!";
+            } else {
+                throw new Error("Erreur serveur");
+            }
+        })
+        .catch(err => {
+            status.className = 'error';
+            status.textContent = "Failed to restore parameters.";
+        })
+        .finally(() => {
+            btn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 4000);
+        });
+        loadConfig();
     }
 
     function saveConfigPWM() {
