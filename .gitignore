@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 
+include/output.html.h
+html/pid.html

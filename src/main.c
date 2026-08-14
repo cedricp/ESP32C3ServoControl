@@ -31,15 +31,15 @@ const uint32_t test_sequence_us_1[NUM_SERVOS] = {990, 1000, 2000, 1000, 1000, 10
 const uint32_t test_sequence_us_2[NUM_SERVOS] = {1500, 1500, 2000, 1500, 1000, 1500};
 const uint32_t test_sequence_us_3[NUM_SERVOS] = {2000, 2000, 2000, 2000, 1000, 2000};
 
-PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.01f, 250.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
-PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.01f, 150.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
-PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.02f, 120.f, .integralAcc = 0.0, .prevError = 0.0, .invert = 0 };
+PID_Config_t pidRoll  = { .Kp = 0.5f, .Ki = 0.0f, .Kd = 0.0001f, 250.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
+PID_Config_t pidPitch = { .Kp = 0.6f, .Ki = 0.0f, .Kd = 0.0001f, 150.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
+PID_Config_t pidYaw   = { .Kp = 0.7f, .Ki = 0.0f, .Kd = 0.0002f, 120.f, .integralAcc = 0.0, .prevMeasuredRate = 0.0, .invert = 0 };
 
 PID_Config_t* get_pid_roll(void) { return &pidRoll; }
 PID_Config_t* get_pid_pitch(void) { return &pidPitch; }
 PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
 
-int g_master_gain_channel = 6;
+int g_master_gain_channel = 5;
 int g_ouput_mapping[NUM_SERVOS] = {0, 1, 2, 3, 4, 5};
 uint32_t g_failsafe_us[NUM_SERVOS] = {1500, 1500, 1000, 1500, 1500, 1500};
 bool g_invert_channel[NUM_SERVOS] = {0, 0, 0, 0, 0, 0};
@@ -170,8 +170,7 @@ uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, floa
 {
     float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 5);
     float stickInput = nomaliseStick(stick_us);
-    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid->maxRateDegs ,&pidRoll);
-    if (pid->invert) axis_correction = -axis_correction;
+    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid->maxRateDegs, pid);
     return (axis_correction + 1) * 500. + 1000.;
 }
 
@@ -216,13 +215,15 @@ void servo_update_task(void *pvParameters) {
     static int64_t last_time = 0;
     int64_t servo_timer = esp_timer_get_time();
     float master_gain = 0.3f;
+    int64_t output_timer = esp_timer_get_time();
+
 
     while (1) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
 
         
-        if (rx_data.valid && g_master_gain_channel >= 0 && g_master_gain_channel < 8) {\
+        if (rx_data.valid && g_master_gain_channel >= 0 && g_master_gain_channel < 8) {
             // Update master gain
             master_gain = ((float)rx_data.us_values[g_master_gain_channel] - 1000.0f) / 1000.0f;
         }
@@ -239,9 +240,9 @@ void servo_update_task(void *pvParameters) {
             if (dt <= 0.0005f || dt > 0.020f) {
                 dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
             }
-            rx_data.us_values[0] = 1500;
             rx_data.us_values[0] = computeAxis(&pidRoll, rx_data.us_values[0], gyro_data.x, master_gain, dt);
-            rx_data.valid = 1;
+            rx_data.us_values[1] = computeAxis(&pidPitch, rx_data.us_values[1], gyro_data.y, master_gain, dt);
+            rx_data.us_values[3] = computeAxis(&pidYaw, rx_data.us_values[3], gyro_data.z, master_gain, dt);
         }
         
         int64_t delta = esp_timer_get_time() - servo_timer;
@@ -251,6 +252,14 @@ void servo_update_task(void *pvParameters) {
             if (rx_data.valid) {
                 for (int i = 0; i < NUM_SERVOS; i++) {
                     uint16_t us = rx_data.us_values[g_ouput_mapping[i]];
+                    
+                    // Clamp to 1000 µs - 2000 µs
+                    us = us < 1000 ? 1000 : us;
+                    us = us > 2000 ? 2000 : us;
+
+                    if (g_invert_channel[i]) {
+                        us = 3000 - us;
+                    }
                     ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(us));
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
                 }
@@ -264,6 +273,12 @@ void servo_update_task(void *pvParameters) {
                 }
             }
         }
+        if (esp_timer_get_time() - output_timer > 500000) {
+            output_timer = esp_timer_get_time();
+            printf("Servo values : %d %d %d %d %d %d\n", rx_data.us_values[0], rx_data.us_values[1], rx_data.us_values[2], rx_data.us_values[3], rx_data.us_values[4], rx_data.us_values[5]);
+            printf("Gyro values : %f %f %f\n", gyro_data.x, gyro_data.y, gyro_data.z);
+            printf("Master gain : %f channel : %d\n", master_gain, g_master_gain_channel);
+        }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
@@ -276,11 +291,10 @@ void app_main(void) {
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
     
     xTaskCreate(slow_button_task, "slow_button", 1024, NULL, 5, &slow_button_task_handle);
     xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
-    xTaskCreate(servo_update_task, "servo_ctrl", 2048, NULL, 20, &servo_task_handle);
+    xTaskCreate(servo_update_task, "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
 
     blink_led(4, 200, false);

@@ -13,9 +13,9 @@
 #include "captdns.h"
 #include "gyro_task.h"
 #include "pid.h"
-#include "pid.html.h"
 #include "types.h"
-
+#include "pid.html.h"
+#include "output.html.h"
 
 static httpd_handle_t g_server = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
@@ -84,7 +84,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     cJSON *item = cJSON_GetObjectItem(json, "roll_kp");
     if (item) g_pidroll_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_kd");
-    if (item) g_pidroll_config->Kd = item->valuedouble;
+    if (item) g_pidroll_config->Kd = item->valuedouble / 1000.0;
     item = cJSON_GetObjectItem(json, "roll_rate");
     if (item) g_pidroll_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_invert");
@@ -96,7 +96,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     item = cJSON_GetObjectItem(json, "pitch_kp");
     if (item) g_pidpitch_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_kd");
-    if (item) g_pidpitch_config->Kd = item->valuedouble;
+    if (item) g_pidpitch_config->Kd = item->valuedouble / 1000.0;
     item = cJSON_GetObjectItem(json, "pitch_rate");
     if (item) g_pidpitch_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_invert");
@@ -108,7 +108,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     item = cJSON_GetObjectItem(json, "yaw_kp");
     if (item) g_pidyaw_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_kd");
-    if (item) g_pidyaw_config->Kd = item->valuedouble;
+    if (item) g_pidyaw_config->Kd = item->valuedouble / 1000.0;
     item = cJSON_GetObjectItem(json, "yaw_rate");
     if (item) g_pidyaw_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_invert");
@@ -208,19 +208,19 @@ esp_err_t config_get_handler(httpd_req_t *req) {
 
     // Axis: Roll
     cJSON_AddNumberToObject(json, "roll_kp",   g_pidroll_config->Kp);
-    cJSON_AddNumberToObject(json, "roll_kd",   g_pidroll_config->Kd);
+    cJSON_AddNumberToObject(json, "roll_kd",   g_pidroll_config->Kd * 1000.0f);
     cJSON_AddNumberToObject(json, "roll_rate", g_pidroll_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "roll_invert", g_pidroll_config->invert);
 
     // Axis: Pitch
     cJSON_AddNumberToObject(json, "pitch_kp",   g_pidpitch_config->Kp);
-    cJSON_AddNumberToObject(json, "pitch_kd",   g_pidpitch_config->Kd);
+    cJSON_AddNumberToObject(json, "pitch_kd",   g_pidpitch_config->Kd * 1000.0f);
     cJSON_AddNumberToObject(json, "pitch_rate", g_pidpitch_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "pitch_invert", g_pidpitch_config->invert);
 
     // Axis: Yaw
     cJSON_AddNumberToObject(json, "yaw_kp",   g_pidyaw_config->Kp);
-    cJSON_AddNumberToObject(json, "yaw_kd",   g_pidyaw_config->Kd);
+    cJSON_AddNumberToObject(json, "yaw_kd",   g_pidyaw_config->Kd * 1000.0f);
     cJSON_AddNumberToObject(json, "yaw_rate", g_pidyaw_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "yaw_invert", g_pidyaw_config->invert);
 
@@ -273,7 +273,16 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_send(req, (const char *)index_html_gz, index_html_gz_len);
+    httpd_resp_send(req, (const char *)pid_html_gz, pid_html_gz_len);
+
+    return ESP_OK;
+}
+
+static esp_err_t output_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_send(req, (const char *)output_html_gz, output_html_gz_len);
 
     return ESP_OK;
 }
@@ -351,6 +360,13 @@ void start_webserver(void)
             .handler = root_get_handler,
             .user_ctx = NULL
         };
+
+        httpd_uri_t output = {
+            .uri = "/output",
+            .method = HTTP_GET,
+            .handler = output_get_handler,
+            .user_ctx = NULL
+        };
         
         static const httpd_uri_t uri_config_post = {
             .uri       = "/api/config",
@@ -375,6 +391,7 @@ void start_webserver(void)
         
         httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, http_404_error_handler);
         httpd_register_uri_handler(g_server, &root);
+        httpd_register_uri_handler(g_server, &output);
         httpd_register_uri_handler(g_server, &uri_config_get);
         httpd_register_uri_handler(g_server, &uri_config_post);
         httpd_register_uri_handler(g_server, &uri_configpwm_post);

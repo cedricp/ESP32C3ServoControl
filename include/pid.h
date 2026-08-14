@@ -8,7 +8,7 @@ typedef struct {
     int invert;        // Inversion du signal de rotation
     char checksum;
     float integralAcc;  // Accumulateur de l'erreur intégrale
-    float prevError;    // Erreur de la boucle précédente
+    float prevMeasuredRate;
 } PID_Config_t;
 
 float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, float max_rate_degs, PID_Config_t* pid);

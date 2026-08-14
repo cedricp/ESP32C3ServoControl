@@ -109,7 +109,7 @@ void crsf_rx_task(void *pvParameters) {
             servo_data_t tx_data;
             tx_data.valid = 1;
             for (int ch = 0; ch < NUM_CHANNELS; ch++) {
-                tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 5) / 8 + 1500;
+                tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 3) / 5 + 1500;
             }
             portENTER_CRITICAL(&g_servo_spinlock);
             g_servo_data = tx_data;

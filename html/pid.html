@@ -212,7 +212,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="roll_kd_v">0.0000</span></div>
-                    <input type="range" id="roll_kd" min="0" max="0.05" step="0.0005" value="0.0050">
+                    <input type="range" id="roll_kd" min="0" max="0.5" step="0.005" value="0.050">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="roll_rate_v">250</span></div>
@@ -235,7 +235,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="pitch_kd_v">0.0000</span></div>
-                    <input type="range" id="pitch_kd" min="0" max="0.05" step="0.0005" value="0.0050">
+                    <input type="range" id="pitch_kd" min="0" max="0.5" step="0.005" value="0.050">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="pitch_rate_v">150</span></div>
@@ -258,7 +258,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="yaw_kd_v">0.0000</span></div>
-                    <input type="range" id="yaw_kd" min="0" max="0.05" step="0.0005" value="0.0000">
+                    <input type="range" id="yaw_kd" min="0" max="0.5" step="0.005" value="0.0000">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="yaw_rate_v">120</span></div>
@@ -278,216 +278,6 @@
             <button type="button" id="saveBtn" onclick="saveConfig()">Save PID config</button>
         </div>
         <div id="status"></div>
-
-        <form id="Channel0">   
-            <div class="card">
-                <h2>PWM Ouput 0</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 0 output mapping</span>
-                    </div>
-                    
-                    <select id="channel0" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel0" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel0">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe0_v">1500</span></div>
-                        <input type="range" id="failsafe0" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form id="Channel1">   
-            <div class="card">
-                <h2>PWM Ouput 1</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 1 output mapping</span>
-                    </div>
-                    
-                    <select id="channel1" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel1" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel1">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe1_v">1500</span></div>
-                        <input type="range" id="failsafe1" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form id="Channel2">   
-            <div class="card">
-                <h2>PWM Ouput 2</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 2 output mapping</span>
-                    </div>
-                    
-                    <select id="channel2" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel2" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel2">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe2_v">1500</span></div>
-                        <input type="range" id="failsafe2" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form id="Channel3">   
-            <div class="card">
-                <h2>PWM Ouput 3</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 3 output mapping</span>
-                    </div>
-                    
-                    <select id="channel3" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel3" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel3">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe3_v">1500</span></div>
-                        <input type="range" id="failsafe3" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form id="Channel4">   
-            <div class="card">
-                <h2>PWM Ouput 4</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 4 output mapping</span>
-                    </div>
-                    
-                    <select id="channel4" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel4" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel4">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe4_v">1500</span></div>
-                        <input type="range" id="failsafe4" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form id="Channel5">   
-            <div class="card">
-                <h2>PWM Ouput 5</h2>
-                <div class="control-group">
-                    <div class="control-label">
-                        <span>Channel 5 output mapping</span>
-                    </div>
-                    
-                    <select id="channel5" class="select-input">
-                        <option value="0">Channel 1(Aileron)</option>
-                        <option value="1">Channel 2(Elevator)</option>
-                        <option value="2">Channel 3(Throttle)</option>
-                        <option value="3">Channel 4(Rudder)</option>
-                        <option value="4">Channel 5(Armed)</option>
-                        <option value="5">Channel 6</option>
-                        <option value="6">Channel 7</option>
-                        <option value="7">Channel 8</option>
-                    </select>
-                    
-                    <div class="control-group checkbox-group">
-                        <label for="invert_channel5" class="checkbox-label">
-                            <span>Invert ouput</span>
-                            <input type="checkbox" id="invert_channel5">
-                        </label>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe5_v">1500</span></div>
-                        <input type="range" id="failsafe5" min="1000" max="2000" step="5" value="1500">
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <div class="actions">
-            <button type="button" id="saveBtnPWM" onclick="saveConfigPWM()">Save PWM config</button>
-        </div>
-        <div id="statusPWM"></div>
-
     </form>
 </div>
 
@@ -519,7 +309,13 @@
                     else {
                         input.value = data[key];
                         if (valSpan) {
-                            valSpan.textContent = data[key];
+                            const step = input.step;
+                            if (step && step.includes('.')) {
+                                const decimals = step.split('.')[1].length;
+                                valSpan.textContent = Number(data[key]).toFixed(decimals);
+                            } else {
+                                valSpan.textContent = data[key];
+                            }
                         }
                     }
                 }
@@ -578,56 +374,6 @@
         });
     }
 
-    function saveConfigPWM() {
-        const btn = document.getElementById('saveBtnPWM');
-        const status = document.getElementById('statusPWM');
-        btn.disabled = true;
-        status.className = '';
-        status.textContent = "Sending config to ESP32...";
-
-        const payload = {
-            channel0: parseInt(document.getElementById('channel0').value),
-            channel1: parseInt(document.getElementById('channel1').value),
-            channel2: parseInt(document.getElementById('channel2').value),
-            channel3: parseInt(document.getElementById('channel3').value),
-            channel4: parseInt(document.getElementById('channel4').value),
-            channel5: parseInt(document.getElementById('channel5').value),
-            invert0: document.getElementById('invert_channel0').checked,
-            invert1: document.getElementById('invert_channel1').checked,
-            invert2: document.getElementById('invert_channel2').checked,
-            invert3: document.getElementById('invert_channel3').checked,
-            invert4: document.getElementById('invert_channel4').checked,
-            invert5: document.getElementById('invert_channel5').checked,
-            failsafe0: parseInt(document.getElementById('failsafe0').value),
-            failsafe1: parseInt(document.getElementById('failsafe1').value),
-            failsafe2: parseInt(document.getElementById('failsafe2').value),
-            failsafe3: parseInt(document.getElementById('failsafe3').value),
-            failsafe4: parseInt(document.getElementById('failsafe4').value),
-            failsafe5: parseInt(document.getElementById('failsafe5').value)
-        };
-
-        fetch('/api/configpwm', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-        .then(res => {
-            if (res.ok) {
-                status.className = 'success';
-                status.textContent = "Parameters saved and applied!";
-            } else {
-                throw new Error("Erreur serveur");
-            }
-        })
-        .catch(err => {
-            status.className = 'error';
-            status.textContent = "Failed to save parameters.";
-        })
-        .finally(() => {
-            btn.disabled = false;
-            setTimeout(() => { status.textContent = ''; }, 4000);
-        });
-    }
 </script>
 </body>
 </html>

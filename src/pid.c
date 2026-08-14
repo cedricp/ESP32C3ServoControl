@@ -45,14 +45,16 @@ float computeAxisPID(float stickInput, float targetRate, float measuredRate, flo
     // e. Terme Dérivé (D)
     float dTerm = 0.0f;
     if (dt > 0.0f) {
-        dTerm = pid->Kd * (error_nomalized - pid->prevError) / dt;
+        dTerm = pid->Kd * (error_nomalized - pid->prevMeasuredRate) / dt;
     }
-    pid->prevError = error_nomalized;
+    pid->prevMeasuredRate = measuredRate / pid->maxRateDegs;
 
     // f. Calcul de la correction Gyro globale pondérée par Master Gain et Stick Derating
     float gyroCorrection = (pTerm + iTerm + dTerm) * masterGain * stickFactor;
 
     // g. Superposition de la commande directe pilote et de la correction
+
+    if (pid->invert) gyroCorrection = -gyroCorrection;
     float output = stickInput + gyroCorrection;
 
     // h. Limitation du débattement servo final

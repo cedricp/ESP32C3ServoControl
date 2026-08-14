@@ -66,9 +66,10 @@ void mpu_init(void) {
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &mpu_handle));
 }
 
-static void mpu_write_reg(uint8_t reg, uint8_t val) {
+static esp_err_t mpu_write_reg(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
-    ESP_ERROR_CHECK(i2c_master_transmit(mpu_handle, buf, 2, pdMS_TO_TICKS(I2C_TIMEOUT_MS)));
+    esp_err_t err = i2c_master_transmit(mpu_handle, buf, 2, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    return err;
 }
 
 void mpu_configure(void) {
