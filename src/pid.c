@@ -19,7 +19,7 @@ float nomaliseStick(uint16_t pulse_us)
  * @param masterGain   Gain global radio [0.0 à 1.0]
  * @param pid          Pointeur vers la structure PID de l'axe
  */
-float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, float max_rate_degs, PID_Config_t* pid) {
+float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, PID_Config_t* pid) {
     
     // a. Calcul de l'erreur de vitesse angulaire
     float error_nomalized = (targetRate - measuredRate) / pid->maxRateDegs;

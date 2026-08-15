@@ -21,16 +21,15 @@ static httpd_handle_t g_server = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
 static esp_netif_t *esp_netif_handle = NULL;
 
-#define DNS_PORT 53
-#define WIFI_SSID "FLIGHT_CON"
+#define WIFI_SSID "ESP_FLIGHT_CON"
 
 extern PID_Config_t* get_pid_roll(void);
 extern PID_Config_t* get_pid_pitch(void);
 extern PID_Config_t* get_pid_yaw(void);
 extern int g_master_gain_channel;
-extern int g_ouput_mapping[NUM_SERVOS];
-extern uint32_t g_failsafe_us[NUM_SERVOS];
-extern bool g_invert_channel[NUM_SERVOS];
+extern int g_ouput_mapping[NUM_PWM_OUPUTS];
+extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
+extern bool g_invert_channel[NUM_PWM_OUPUTS];
 
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
@@ -58,6 +57,7 @@ static void dhcp_set_captiveportal_url(void) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif));
     ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, captiveportal_uri, strlen(captiveportal_uri)));
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_start(netif));
+    free(captiveportal_uri);
 }
 
 // Handler de réception du POST /api/config
@@ -291,6 +291,18 @@ esp_err_t config_get_handler(httpd_req_t *req) {
     return res;
 }
 
+static esp_err_t generate_204_handler(httpd_req_t *req)
+{
+    ESP_LOGI("HTTP", "generate_204 request: %s", req->uri);
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_set_type(req, "text/html");
+    const char *body = 
+        "<!DOCTYPE html><html><head><title>Login</title></head>"
+        "<body>Login required</body></html>";
+    httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
@@ -377,6 +389,7 @@ void start_webserver(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 13;
+    config.max_uri_handlers = 15;
     config.lru_purge_enable = true;
 
     if (httpd_start(&g_server, &config) == ESP_OK) {
@@ -429,6 +442,27 @@ void start_webserver(void)
             .handler   = config_factorypwm_handler, // Votre fonction
             .user_ctx  = NULL
         };
+
+        httpd_uri_t gen204b = {
+            .uri = "/gen_204",
+            .method = HTTP_GET,
+            .handler = generate_204_handler,
+            .user_ctx = NULL
+        };
+
+        httpd_uri_t generate204b = {
+            .uri = "/generate_204",
+            .method = HTTP_GET,
+            .handler = generate_204_handler,
+            .user_ctx = NULL
+        };
+
+        httpd_uri_t redirect = {
+            .uri = "/redirect",
+            .method = HTTP_GET,
+            .handler = generate_204_handler,
+            .user_ctx = NULL
+        };
         
         httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, http_404_error_handler);
         httpd_register_uri_handler(g_server, &root);
@@ -438,6 +472,9 @@ void start_webserver(void)
         httpd_register_uri_handler(g_server, &uri_configpwm_post);
         httpd_register_uri_handler(g_server, &uri_factorypid_post);
         httpd_register_uri_handler(g_server, &uri_factorypwm_post);
+        httpd_register_uri_handler(g_server, &gen204b);
+        httpd_register_uri_handler(g_server, &generate204b);
+        httpd_register_uri_handler(g_server, &redirect);
     }
 
     dns_server_config_t dns_config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);

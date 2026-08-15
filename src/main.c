@@ -28,11 +28,11 @@
 
 // #define DEBUG_STACK 1
 
-const int servo_gpios[NUM_SERVOS] = {5, 6, 7, 10, 2, 0};
+const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
 
-const uint32_t test_sequence_us_1[NUM_SERVOS] = {990, 1000, 2000, 1000, 1000, 1000};
-const uint32_t test_sequence_us_2[NUM_SERVOS] = {1500, 1500, 2000, 1500, 1000, 1500};
-const uint32_t test_sequence_us_3[NUM_SERVOS] = {2000, 2000, 2000, 2000, 1000, 2000};
+const uint32_t test_sequence_us_1[NUM_PWM_OUPUTS] = {990, 1000, 2000, 1000, 1000, 1000};
+const uint32_t test_sequence_us_2[NUM_PWM_OUPUTS] = {1500, 1500, 2000, 1500, 1000, 1500};
+const uint32_t test_sequence_us_3[NUM_PWM_OUPUTS] = {2000, 2000, 2000, 2000, 1000, 2000};
 
 PID_Config_t pidRoll;
 PID_Config_t pidPitch;
@@ -43,9 +43,9 @@ PID_Config_t* get_pid_pitch(void) { return &pidPitch; }
 PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
 
 int g_master_gain_channel = 5;
-int g_ouput_mapping[NUM_SERVOS];;
-uint32_t g_failsafe_us[NUM_SERVOS];
-bool g_invert_channel[NUM_SERVOS];
+int g_ouput_mapping[NUM_PWM_OUPUTS];;
+uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
+bool g_invert_channel[NUM_PWM_OUPUTS];
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
@@ -213,7 +213,7 @@ void slow_button_task(void *pvParameters) {
 }
 
 void test_sequence(const uint32_t *sequence) {
-    for (int i = 0; i < NUM_SERVOS; i++) {
+    for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
         ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(sequence[i]));
         ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
     }
@@ -223,7 +223,7 @@ uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, floa
 {
     float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 5);
     float stickInput = nomaliseStick(stick_us);
-    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid->maxRateDegs, pid);
+    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid);
     return (axis_correction + 1) * 500. + 1000.;
 }
 
@@ -244,7 +244,7 @@ void servo_update_task(void *pvParameters) {
     };
     ledc_timer_config(&ledc_timer);
 
-    for (int i = 0; i < NUM_SERVOS; i++) {
+    for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
         ledc_channel_config_t ledc_channel = {
             .speed_mode     = LEDC_LOW_SPEED_MODE,
             .channel        = (ledc_channel_t)i,
@@ -274,7 +274,6 @@ void servo_update_task(void *pvParameters) {
     while (1) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
-
         
         if (rx_data.valid && g_master_gain_channel >= 0 && g_master_gain_channel < 8) {
             // Update master gain
@@ -303,7 +302,7 @@ void servo_update_task(void *pvParameters) {
             // 50 Hz refresh (200 ms)
             servo_timer = esp_timer_get_time();
             if (rx_data.valid) {
-                for (int i = 0; i < NUM_SERVOS; i++) {
+                for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
                     uint16_t us = rx_data.us_values[g_ouput_mapping[i]];
                     
                     // Clamp to 1000 µs - 2000 µs
@@ -320,7 +319,7 @@ void servo_update_task(void *pvParameters) {
             } else if (radio_init) {
                 // --- FAILSAFE MODE ---
                 // No data since 250ms, set all servos to failsafe values
-                for (int i = 0; i < NUM_SERVOS; i++) {
+                for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
                     ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(g_failsafe_us[i]));
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
                 }
@@ -357,12 +356,6 @@ void app_main(void) {
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
 
     blink_led(4, 200, false);
-
-    start_webserver();
-
-    // /!\ No delay here, we must send commands as soon as possible for ESC config
-
-    vTaskDelay(3000);
 
 #ifdef DEBUG_STACK
     while (1) {

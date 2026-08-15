@@ -51,7 +51,7 @@ void crsf_rx_task(void *pvParameters) {
         if (bytes_read == 0 && (xTaskGetTickCount() - last_rx_time) > pdMS_TO_TICKS(CRSF_TIMEOUT_MS)) {
             // No data received for 250ms, send failsafe values to servo task
             portENTER_CRITICAL(&g_servo_spinlock);
-            for (int i = 0; i < NUM_SERVOS; i++) {
+            for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
                 g_servo_data.us_values[i] = 1500;
             }
             g_servo_data.valid = 0;
@@ -108,7 +108,7 @@ void crsf_rx_task(void *pvParameters) {
 
             servo_data_t tx_data;
             tx_data.valid = 1;
-            for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+            for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++) {
                 tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 3) / 5 + 1500;
             }
             portENTER_CRITICAL(&g_servo_spinlock);
