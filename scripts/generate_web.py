@@ -2,10 +2,17 @@ import gzip
 import os
 import glob
 
+def is_older(file_a, file_b):
+    return os.path.getmtime(file_a) < os.path.getmtime(file_b)
+
 def generate_html_header(html_path):
     basename = os.path.basename(html_path)
     name, ext = os.path.splitext(basename)
     header_path = os.path.join("include", f"{basename}.h")
+
+    if is_older(html_path, header_path) or not os.path.exists(header_path):
+        # Don't regenerate
+        return
 
     if not os.path.exists(html_path):
         print(f"[Web Build] Erreur : {html_path} introuvable.")

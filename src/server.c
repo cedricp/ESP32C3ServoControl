@@ -27,6 +27,8 @@ extern PID_Config_t* get_pid_roll(void);
 extern PID_Config_t* get_pid_pitch(void);
 extern PID_Config_t* get_pid_yaw(void);
 extern int g_master_gain_channel;
+extern int g_flightmode;
+extern int g_flightmode_channel;
 extern int g_ouput_mapping[NUM_PWM_OUPUTS];
 extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 extern bool g_invert_channel[NUM_PWM_OUPUTS];
@@ -124,6 +126,9 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
     item = cJSON_GetObjectItem(json, "master_gain");
     if (item) g_master_gain_channel = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "flightmode_channel");
+    if (item) g_flightmode_channel = item->valueint;
 
     cJSON_Delete(json);
 
@@ -247,6 +252,9 @@ esp_err_t config_get_handler(httpd_req_t *req) {
     cJSON_AddBoolToObject(json, "yaw_invert", g_pidyaw_config->invert);
 
     cJSON_AddNumberToObject(json, "master_gain", g_master_gain_channel);
+
+    cJSON_AddNumberToObject(json, "flightmode", g_flightmode);
+    cJSON_AddNumberToObject(json, "flightmode_channel", g_flightmode_channel);
 
     cJSON_AddNumberToObject(json, "channel0", g_ouput_mapping[0]);
     cJSON_AddNumberToObject(json, "channel1", g_ouput_mapping[1]);

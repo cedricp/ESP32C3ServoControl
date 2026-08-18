@@ -6,6 +6,7 @@
 #include "freertos/queue.h" 
 #include "driver/uart.h"
 #include "driver/ledc.h"
+#include "driver/gpio.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 
@@ -26,6 +27,20 @@
 
 #define NVS_NAMESPACE "storage"
 
+enum {
+    FLIGHTMODE_FREE,
+    FLIGHTMODE_STAB,
+    FLIGHTMODE_LEVEL
+} flightmode_t;
+
+enum {
+    CHANNEL_AILERON,
+    CHANNEL_ELEVATOR,
+    CHANNEL_THROTTLE,
+    CHANNEL_RUDDER,
+    CHANNEL_ARM
+} channels_t;
+
 // #define DEBUG_STACK 1
 
 const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
@@ -43,16 +58,24 @@ PID_Config_t* get_pid_pitch(void) { return &pidPitch; }
 PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
 
 int g_master_gain_channel = 5;
+int g_flightmode_channel = 6;
+int g_flightmode = 1;
 int g_ouput_mapping[NUM_PWM_OUPUTS];;
 uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 bool g_invert_channel[NUM_PWM_OUPUTS];
+bool g_elrs_armed = false;
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t slow_button_task_handle = NULL;
 TaskHandle_t gyro_task_handle = NULL;
 
-void init_pid(PID_Config_t* pid, float Kp, float Ki, float Kd, float maxRateDegs, bool invert)
+static inline bool is_elrs_armed()
+{
+    return g_elrs_armed;
+}
+
+static void init_pid(PID_Config_t* pid, float Kp, float Ki, float Kd, float maxRateDegs, bool invert)
 {
     pid->Kp = Kp;
     pid->Ki = Ki;
@@ -147,7 +170,7 @@ void init_pwm_factory()
     memcpy(g_failsafe_us, (int[]){1500, 1500, 1000, 1500, 1500, 1500}, sizeof(g_failsafe_us));
 }
 
-void blink_led(int times, int delay_ms, bool finish_lit) {
+static void blink_led(int times, int delay_ms, bool finish_lit) {
     for (int i = 0; i < times; i++) {
         gpio_set_level(ONBOARD_LED_PIN, 1);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
@@ -188,7 +211,7 @@ void slow_button_task(void *pvParameters) {
     bool button_pressed = false;
 
     while (1) {
-        if (gpio_get_level(PAIRING_BUTTON_PIN) == 0) {
+        if (gpio_get_level(PAIRING_BUTTON_PIN) == 0 && !g_elrs_armed) {
             stable_count++;
             if (stable_count >= 2) { // Must be low for 2 consecutive reads (approx 60ms)
                 if (!button_pressed) {
@@ -208,6 +231,12 @@ void slow_button_task(void *pvParameters) {
             button_pressed = false;
         }
 
+        if (is_elrs_armed() && server_is_running()){
+            // Deactivate server when ELRS is armed
+            stop_webserver();
+            blink_led(4, 200, false); // Visual feedback for server off
+        }
+
         vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
@@ -219,11 +248,11 @@ void test_sequence(const uint32_t *sequence) {
     }
 }
 
-uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, float master_gain, float dt)
+static inline uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_gain, float dt)
 {
     float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 5);
     float stickInput = nomaliseStick(stick_us);
-    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, dt, master_gain, pid);
+    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_gain, pid);
     return (axis_correction + 1) * 500. + 1000.;
 }
 
@@ -269,18 +298,33 @@ void servo_update_task(void *pvParameters) {
     int64_t servo_timer = esp_timer_get_time();
     float master_gain = 0.3f;
     int64_t output_timer = esp_timer_get_time();
-
+    
+    attitude_t attitude;
+    attitude.pitchDeg = attitude.rollDeg = 0.0f;
 
     while (1) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
         
-        if (rx_data.valid && g_master_gain_channel >= 0 && g_master_gain_channel < 8) {
-            // Update master gain
-            master_gain = ((float)rx_data.us_values[g_master_gain_channel] - 1000.0f) / 1000.0f;
+        if (rx_data.valid){
+            if (g_master_gain_channel >= 0 && g_master_gain_channel < 8) {
+                // Update master gain
+                master_gain = ((float)rx_data.us_values[g_master_gain_channel] - 1000.0f) / 1000.0f;
+            }
+            if (g_flightmode_channel >= 0 && g_flightmode_channel < 8){
+                int fmv = rx_data.us_values[g_flightmode_channel];
+                if (fmv > 1700){
+                    g_flightmode = FLIGHTMODE_LEVEL;
+                } else if (fmv > 1300){
+                    g_flightmode = FLIGHTMODE_STAB;
+                } else {
+                    g_flightmode = FLIGHTMODE_FREE;
+                }
+            }
+            g_elrs_armed = rx_data.us_values[4] > 1600;
         }
 
-        if (gyro_data.valid) {
+        if (gyro_data.valid && rx_data.valid) {
             int64_t now = esp_timer_get_time();
             if (last_time == 0) {
                 last_time = now; // First iteration safety
@@ -292,9 +336,63 @@ void servo_update_task(void *pvParameters) {
             if (dt <= 0.0005f || dt > 0.020f) {
                 dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
             }
-            rx_data.us_values[0] = computeAxis(&pidRoll, rx_data.us_values[0], gyro_data.x, master_gain, dt);
-            rx_data.us_values[1] = computeAxis(&pidPitch, rx_data.us_values[1], gyro_data.y, master_gain, dt);
-            rx_data.us_values[3] = computeAxis(&pidYaw, rx_data.us_values[3], gyro_data.z, master_gain, dt);
+
+            if (g_flightmode == FLIGHTMODE_LEVEL){
+                computeAttitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
+                
+                float stickInputRoll = nomaliseStick(rx_data.us_values[0]);
+                float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
+                float targetRateRoll = 4.0f * (targetAngleRoll - attitude.rollDeg);
+                targetRateRoll = targetRateRoll <  -pidRoll.maxRateDegs ? -pidRoll.maxRateDegs : targetRateRoll;
+                targetRateRoll = targetRateRoll >   pidRoll.maxRateDegs ?  pidRoll.maxRateDegs : targetRateRoll;
+                
+                float stickInputPitch = nomaliseStick(rx_data.us_values[1]);
+                float targetAnglePitch = stickInputPitch * 35.0f; // -35° à +35°
+                float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
+                targetRatePitch = targetRatePitch <  -pidPitch.maxRateDegs ? -pidPitch.maxRateDegs : targetRatePitch;
+                targetRatePitch = targetRatePitch >   pidPitch.maxRateDegs ?  pidPitch.maxRateDegs : targetRatePitch;
+
+                rx_data.us_values[CHANNEL_AILERON] = computeAxisPID(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll);
+                rx_data.us_values[CHANNEL_ELEVATOR] = computeAxisPID(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch);
+                rx_data.us_values[CHANNEL_RUDDER] = computeAxis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+            } else if (g_flightmode == FLIGHTMODE_STAB){
+                rx_data.us_values[CHANNEL_THROTTLE] = computeAxis(&pidRoll, rx_data.us_values[CHANNEL_THROTTLE], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_ELEVATOR] = computeAxis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_RUDDER] = computeAxis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+            }
+        } else if (gyro_data.valid && !rx_data.valid) {
+            int64_t now = esp_timer_get_time();
+            if (last_time == 0) {
+                last_time = now; // First iteration safety
+            }
+
+            float dt = (float)(now - last_time) / 1000000.0f;
+            last_time = now;
+
+            if (dt <= 0.0005f || dt > 0.020f) {
+                dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
+            }
+
+            // No valid RX data, but gyro is valid. Try to autolevel and turn with no thrust
+            computeAttitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
+            
+            float stickInputRoll = 0.5f; // ~22% roll angle
+            float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
+            float targetRateRoll = 4.0f * (targetAngleRoll - attitude.rollDeg);
+            targetRateRoll = targetRateRoll <  -pidRoll.maxRateDegs ? -pidRoll.maxRateDegs : targetRateRoll;
+            targetRateRoll = targetRateRoll >   pidRoll.maxRateDegs ?  pidRoll.maxRateDegs : targetRateRoll;
+            
+            // TODO : check stab inverted or not
+            float stickInputPitch = -0.3f; // ~10% pitch angle
+            float targetAnglePitch = stickInputPitch * 35.0f; 
+            float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
+            targetRatePitch = targetRatePitch <  -pidPitch.maxRateDegs ? -pidPitch.maxRateDegs : targetRatePitch;
+            targetRatePitch = targetRatePitch >   pidPitch.maxRateDegs ?  pidPitch.maxRateDegs : targetRatePitch;
+
+            rx_data.us_values[CHANNEL_AILERON] = computeAxisPID(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll);
+            rx_data.us_values[CHANNEL_ELEVATOR] = computeAxisPID(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch);
+            rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
+            rx_data.us_values[CHANNEL_RUDDER] = 1500; // Yaw neutral
         }
         
         int64_t delta = esp_timer_get_time() - servo_timer;
@@ -328,7 +426,7 @@ void servo_update_task(void *pvParameters) {
         if (esp_timer_get_time() - output_timer > 500000) {
             output_timer = esp_timer_get_time();
             printf("Servo values : %d %d %d %d %d %d\n", rx_data.us_values[0], rx_data.us_values[1], rx_data.us_values[2], rx_data.us_values[3], rx_data.us_values[4], rx_data.us_values[5]);
-            printf("Gyro values : %f %f %f\n", gyro_data.x, gyro_data.y, gyro_data.z);
+            printf("Gyro values : %f %f %f\n", gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z);
             printf("Master gain : %f channel : %d\n", master_gain, g_master_gain_channel);
         }
         vTaskDelay(pdMS_TO_TICKS(1));

@@ -11,6 +11,12 @@ typedef struct {
     float prevMeasuredRate;
 } PID_Config_t;
 
-float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, PID_Config_t* pid);
+typedef struct  {
+    float rollDeg; // Inclinaison en Roulis (-180° à +180°)
+    float pitchDeg; // Inclinaison en Tangage (-90° à +90°)
+} attitude_t;
+
+float computeAxisPID(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float masterGain, PID_Config_t* pid);
 float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us);
 float nomaliseStick(uint16_t pulse_us);
+void computeAttitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt);

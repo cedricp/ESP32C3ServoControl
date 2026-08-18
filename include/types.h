@@ -15,3 +15,4 @@ typedef struct {
     uint16_t us_values[NUM_CRSF_CHANNELS];
     char valid;
 } servo_data_t;
+

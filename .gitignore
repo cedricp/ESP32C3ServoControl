@@ -5,3 +5,4 @@
 .vscode/ipch
 
 include/*.html.h
+sdkconfig.esp32*

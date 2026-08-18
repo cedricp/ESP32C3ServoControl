@@ -6,15 +6,41 @@
 #include "types.h"
 #include "utils.h"
 #include <string.h>
+#include "esp_attr.h"
 
 portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
 servo_data_t g_servo_data;
 
-void get_servo_data(servo_data_t *data)
+IRAM_ATTR void get_servo_data(servo_data_t *data)
 {
     portENTER_CRITICAL(&g_servo_spinlock);
     *data = g_servo_data;
     portEXIT_CRITICAL(&g_servo_spinlock);
+}
+
+static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, const uint8_t *payload) {
+    int bit_offset = ch * 11;
+    int byte_index = bit_offset >> 3;        // bit_offset / 8
+    int bit_shift  = bit_offset & 0x07;      // bit_offset % 8
+
+    // Read 3 bytes to guarantee 11 bits are always available regardless of alignment
+    uint32_t raw = (uint32_t)payload[byte_index]
+                 | (uint32_t)payload[byte_index + 1] << 8
+                 | (uint32_t)payload[byte_index + 2] << 16;
+
+    return (raw >> bit_shift) & 0x07FF;
+}
+
+static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len) {
+    uint8_t crc = 0;
+    for (uint8_t i = 0; i < len; i++) {
+        crc ^= ptr[i];
+        for (uint8_t j = 0; j < 8; j++) {
+            if (crc & 0x80) crc = (crc << 1) ^ 0xD5;
+            else crc <<= 1;
+        }
+    }
+    return crc;
 }
 
 // ==========================================
@@ -51,9 +77,6 @@ void crsf_rx_task(void *pvParameters) {
         if (bytes_read == 0 && (xTaskGetTickCount() - last_rx_time) > pdMS_TO_TICKS(CRSF_TIMEOUT_MS)) {
             // No data received for 250ms, send failsafe values to servo task
             portENTER_CRITICAL(&g_servo_spinlock);
-            for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
-                g_servo_data.us_values[i] = 1500;
-            }
             g_servo_data.valid = 0;
             portEXIT_CRITICAL(&g_servo_spinlock);
         } else {

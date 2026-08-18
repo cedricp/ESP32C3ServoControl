@@ -26,10 +26,15 @@
 #define REG_GYRO_XOUT_H  0x43
 #define REG_INT_ENABLE   0x38
 #define REG_INT_CFG      0x37
+#define REG_ACCEL_CONFIG_2 0x1D
+
+#define REG_ACCEL_CONFIG 0x1C
+#define REG_ACCEL_XOUT_H 0x3B
 
 #define I2C_TIMEOUT_MS   50
 
-#define GYRO_CUTOFF_FREQ 45.0f
+#define GYRO_CUTOFF_FREQ        45.0f
+#define GYRO_LOW_CUTOFF_FREQ    15.0f
 
 static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t mpu_handle;
@@ -38,16 +43,26 @@ static TaskHandle_t xGyroTaskHandle = NULL;
 portMUX_TYPE g_gyro_spinlock = portMUX_INITIALIZER_UNLOCKED;
 gyro_data_t g_gyro_data;
 
+typedef struct {
+    float rot_x, rot_y, rot_z;  // deg/s
+    float ax, ay, az; // m/s^2
+    char valid;
+} gyro_t;
+
 
 static const float GYRO_SCALE = 1.0f / 65.5f;  // LSB/(deg/s) pour ±500dps, cf datasheet
+static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
-
-// cutoff coulb be tuned for latency issue (less is induce more lag)
+// cutoff could be tuned for latency issue (less is induce more lag)
 FilterPT1 filterGyroRoll;
 FilterPT1 filterGyroPitch;
 FilterPT1 filterGyroYaw;
 
-void mpu_init(void) {
+FilterPT1 filterGyroRoll_low;
+FilterPT1 filterGyroPitch_low;
+FilterPT1 filterGyroYaw_low;
+
+static void mpu_init(void) {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = I2C_NUM_0,
         .sda_io_num = I2C_SDA_PIN,
@@ -72,7 +87,7 @@ static esp_err_t mpu_write_reg(uint8_t reg, uint8_t val) {
     return err;
 }
 
-void mpu_configure(void) {
+static void mpu_configure(void) {
     mpu_write_reg(REG_PWR_MGMT_1, 0x01);      // sort du sleep, clock source = gyro X (plus stable que interne)
     vTaskDelay(pdMS_TO_TICKS(50));
 
@@ -81,29 +96,52 @@ void mpu_configure(void) {
     mpu_write_reg(REG_SMPLRT_DIV, 0x01);      // Sample rate de sortie = 1kHz / (1+1) = 500Hz
     mpu_write_reg(REG_INT_ENABLE, 0x01);      // Enable interrupts
     mpu_write_reg(REG_INT_CFG, 0x10);         // Interrupt on data ready
+    mpu_write_reg(REG_ACCEL_CONFIG, 0x10);    // 8g full scale range
+    mpu_write_reg(REG_ACCEL_CONFIG_2, 0x03);  // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
 }
 
-esp_err_t mpu_read_gyro(gyro_data_t *out, const int16_t *offset) {
-    uint8_t reg = REG_GYRO_XOUT_H;
-    uint8_t raw[6];
+static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
+    uint8_t regGyro = REG_GYRO_XOUT_H;
+    uint8_t regAccel = REG_ACCEL_XOUT_H;
+    uint8_t raw_gyro[6];
+    uint8_t raw_accel[6];
 
     esp_err_t err = i2c_master_transmit_receive(
-        mpu_handle, &reg, 1, raw, 6, pdMS_TO_TICKS(I2C_TIMEOUT_MS)
+        mpu_handle, &regGyro, 1, raw_gyro, 6, pdMS_TO_TICKS(I2C_TIMEOUT_MS)
     );
     if (err != ESP_OK) return err;
 
-    int16_t gx = (raw[0] << 8) | raw[1];
-    int16_t gy = (raw[2] << 8) | raw[3];
-    int16_t gz = (raw[4] << 8) | raw[5];
+    int16_t gx = (raw_gyro[0] << 8) | raw_gyro[1];
+    int16_t gy = (raw_gyro[2] << 8) | raw_gyro[3];
+    int16_t gz = (raw_gyro[4] << 8) | raw_gyro[5];
 
-    if (offset != NULL) {
-        out->x = (gx - offset[0]);
-        out->y = (gy - offset[1]);
-        out->z = (gz - offset[2]);
+    if (offsets != NULL) {
+        out->rot_x = (gx - offsets[0]);
+        out->rot_y = (gy - offsets[1]);
+        out->rot_z = (gz - offsets[2]);
     } else {
-        out->x = gx;
-        out->y = gy;
-        out->z = gz;
+        out->rot_x = gx;
+        out->rot_y = gy;
+        out->rot_z = gz;
+    }
+
+    err = i2c_master_transmit_receive(
+        mpu_handle, &regAccel, 1, raw_accel, 6, pdMS_TO_TICKS(I2C_TIMEOUT_MS)
+    );
+    if (err != ESP_OK) return err;
+
+    int16_t ax = (raw_accel[0] << 8) | raw_accel[1];
+    int16_t ay = (raw_accel[2] << 8) | raw_accel[3];
+    int16_t az = (raw_accel[4] << 8) | raw_accel[5];
+
+    if (offsets != NULL) {
+        out->ax = (ax - offsets[3]);
+        out->ay = (ay - offsets[4]);
+        out->az = (az - offsets[5]);
+    } else {
+        out->ax = ax;
+        out->ay = ay;
+        out->az = az;
     }
 
     return ESP_OK;
@@ -117,17 +155,21 @@ void get_gyro_data(gyro_data_t *data) {
 }
 
 static void mpu_calibrate_gyro(int16_t *gyro_offsets) {
-    int32_t sum_x = 0, sum_y = 0, sum_z = 0;
+    int32_t sum_x = 0, sum_y = 0, sum_z = 0, sum_ax = 0, sum_ay = 0, sum_az = 0;
     int valid_samples = 0;
-    gyro_data_t gyro_data;
+    gyro_t gyro_data;
 
     ESP_LOGI("MPU", "Gyro calibration... Do not move the model.");
 
     while (valid_samples < 500) {
         if (mpu_read_gyro(&gyro_data, NULL) == ESP_OK) {
-            sum_x += (int32_t)gyro_data.x;
-            sum_y += (int32_t)gyro_data.y;
-            sum_z += (int32_t)gyro_data.z;
+            sum_x += (int32_t)gyro_data.rot_x;
+            sum_y += (int32_t)gyro_data.rot_y;
+            sum_z += (int32_t)gyro_data.rot_z;
+
+            sum_ax += (int32_t)gyro_data.ax;
+            sum_ay += (int32_t)gyro_data.ay;
+            sum_az += (int32_t)gyro_data.az;
             valid_samples++;
         }
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -137,7 +179,12 @@ static void mpu_calibrate_gyro(int16_t *gyro_offsets) {
     gyro_offsets[1] = (int16_t)(sum_y / valid_samples);
     gyro_offsets[2] = (int16_t)(sum_z / valid_samples);
 
-    ESP_LOGI("MPU", "Offsets calculés -> X: %d, Y: %d, Z: %d", gyro_offsets[0], gyro_offsets[1], gyro_offsets[2]);
+    gyro_offsets[3] = (int16_t)(sum_ax / valid_samples);
+    gyro_offsets[4] = (int16_t)(sum_ay / valid_samples);
+    gyro_offsets[5] = (int16_t)(sum_az / valid_samples);
+
+    ESP_LOGI("MPU", "Offsets calculés -> GX: %d, Y: %d, Z: %d\n", gyro_offsets[0], gyro_offsets[1], gyro_offsets[2]);
+    ESP_LOGI("MPU", "Offsets calculés -> AX: %d, AY: %d, AZ: %d\n", gyro_offsets[3], gyro_offsets[4], gyro_offsets[5]);
 }
 
 // Routine d'interruption (ISR) déclenchée par le MPU6500
@@ -155,7 +202,7 @@ static void IRAM_ATTR mpu_drdy_isr_handler(void* arg) {
     }
 }
 
-void init_mpu_interrupt(void) {
+static void init_mpu_interrupt(void) {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << I2C_INT_PIN),
         .mode = GPIO_MODE_INPUT,
@@ -171,21 +218,25 @@ void init_mpu_interrupt(void) {
     gpio_isr_handler_add(I2C_INT_PIN, mpu_drdy_isr_handler, NULL);
 }
 
-
 void gyro_control_task(void *pvParameters) {
     xGyroTaskHandle = xTaskGetCurrentTaskHandle();
 
     
     // FIX 2 : Enregistrer le handle de la tâche en cours pour l'ISR
     float cleanRollRate  = 0.0f, cleanPitchRate = 0.0f, cleanYawRate = 0.0f;
-    int16_t gyro_offsets[3] = {0, 0, 0};
-    gyro_data_t gyro_data;
+    float cleanRollRate_low  = 0.0f, cleanPitchRate_low = 0.0f, cleanYawRate_low = 0.0f;
+    int16_t gyro_offsets[6] = {0, 0, 0, 0, 0, 0}; // GX, GY, GZ, AX, AY, AZ
+    gyro_t gyro_data;
     
     const float dt = 1.0f / 500.0f;
     
     initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, dt); 
     initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, dt);
     initPT1Filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, dt);
+
+    initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, dt); 
+    initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, dt);
+    initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, dt);
     
     mpu_init();
     mpu_configure();
@@ -203,26 +254,39 @@ void gyro_control_task(void *pvParameters) {
             // DRDY Reçu ! Lecture immédiate des registres du MPU
             bool valid = false;
             if (mpu_read_gyro(&gyro_data, gyro_offsets) == ESP_OK) {
-                gyro_data.x *= GYRO_SCALE;
-                gyro_data.y *= GYRO_SCALE;
-                gyro_data.z *= GYRO_SCALE;
+                gyro_data.rot_x *= GYRO_SCALE;
+                gyro_data.rot_y *= GYRO_SCALE;
+                gyro_data.rot_z *= GYRO_SCALE;
 
-                cleanRollRate  = applyPT1Filter(&filterGyroRoll,  gyro_data.x);
-                cleanPitchRate = applyPT1Filter(&filterGyroPitch, gyro_data.y);
-                cleanYawRate   = applyPT1Filter(&filterGyroYaw,   gyro_data.z);
+                cleanRollRate_low  = applyPT1Filter(&filterGyroRoll_low,  gyro_data.rot_x);
+                cleanPitchRate_low = applyPT1Filter(&filterGyroPitch_low, gyro_data.rot_y);
+                cleanYawRate_low   = applyPT1Filter(&filterGyroYaw_low,   gyro_data.rot_z);
+
+                cleanRollRate  = applyPT1Filter(&filterGyroRoll,  gyro_data.rot_x);
+                cleanPitchRate = applyPT1Filter(&filterGyroPitch, gyro_data.rot_y);
+                cleanYawRate   = applyPT1Filter(&filterGyroYaw,   gyro_data.rot_z);
                 valid = true;
             }
 
             // Mise à jour atomique des globales
             portENTER_CRITICAL(&g_gyro_spinlock);
-            g_gyro_data.x = cleanRollRate;
-            g_gyro_data.y = cleanPitchRate;
-            g_gyro_data.z = cleanYawRate;
+            g_gyro_data.rot_x = cleanRollRate;
+            g_gyro_data.rot_y = cleanPitchRate;
+            g_gyro_data.rot_z = cleanYawRate;
+            
+            g_gyro_data.rot_x_low = cleanRollRate_low;
+            g_gyro_data.rot_y_low = cleanPitchRate_low;
+            g_gyro_data.rot_z_low = cleanYawRate_low;
+            
+            g_gyro_data.ax = gyro_data.ax * ACCEL_SCALE_8G;
+            g_gyro_data.ay = gyro_data.ay * ACCEL_SCALE_8G;
+            g_gyro_data.az = gyro_data.az * ACCEL_SCALE_8G;
+
             g_gyro_data.valid = valid;
             portEXIT_CRITICAL(&g_gyro_spinlock);
 
         } else {
-            // Timeout : La broche DRDY n'a pas répondu en 10ms (capteur débranché / planté)
+            // Timeout : No interruption received, possibly a missed DRDY. Mark data as invalid.
             portENTER_CRITICAL(&g_gyro_spinlock);
             g_gyro_data.valid = false;
             portEXIT_CRITICAL(&g_gyro_spinlock);

@@ -2,7 +2,9 @@
 
 
 typedef struct {
-    float x, y, z;  // deg/s
+    float rot_x, rot_y, rot_z;  // deg/s
+    float rot_x_low, rot_y_low, rot_z_low;  // deg/s
+    float ax, ay, az; // m/s^2
     char valid;
 } gyro_data_t;
 

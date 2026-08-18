@@ -161,6 +161,13 @@
             font-size: 0.9rem;
             height: 20px;
         }
+
+        #fmstatus {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            height: 20px;
+        }
         .success { color: #4caf50; }
         .error { color: #f44336; }
     </style>
@@ -198,6 +205,26 @@
                     <option value="6">Channel 6</option>
                     <option value="7">Channel 7</option>
                 </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Flight mode</h2>
+             <div class="control-group">
+                <div class="control-label">
+                    <span>Flight mode channel input</span>
+                </div>
+                <select id="flightmode_channel" class="select-input">
+                    <option value="0">Channel 0</option>
+                    <option value="1">Channel 1</option>
+                    <option value="2">Channel 2</option>
+                    <option value="3">Channel 3</option>
+                    <option value="4">Channel 4</option>
+                    <option value="5">Channel 5</option>
+                    <option value="6">Channel 6</option>
+                    <option value="7">Channel 7</option>
+                </select>
+                <div id="fmstatus"></div>
             </div>
         </div>
     </form>
@@ -300,9 +327,19 @@
     window.addEventListener('DOMContentLoaded', loadConfig);
 
     function loadConfig() {
-    fetch('/api/config')
+        const modeLabels = {
+            0: 'FREE',
+            1: 'STAB',
+            2: 'LEVEL'
+        };
+        const fmstatus = document.getElementById('fmstatus');
+        fmstatus.textContent = "Current : No data";
+        fetch('/api/config')
         .then(response => response.json())
         .then(data => {
+            if (fmstatus && data.flightmode !== undefined) {
+                fmstatus.textContent = "Current : " + modeLabels[data.flightmode];
+            }
             for (const key in data) {
                 const input = document.getElementById(key);
                 const valSpan = document.getElementById(key + '_v');
@@ -325,6 +362,7 @@
                     }
                 }
             }
+
         })
         .catch(err => console.log('Utilisation des valeurs par défaut (hors-ligne)'));
     }

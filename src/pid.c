@@ -1,6 +1,11 @@
 #include <stdint.h>
+#include <stdlib.h>
 #include <math.h>
+#include "types.h"
+#include <utils.h>
 #include "pid.h"
+
+#include "esp_attr.h"
 
 #define MAX_I_TERM       0.2f
 #define MAX_SERVO_OUTPUT 1.0f
@@ -11,53 +16,54 @@ float nomaliseStick(uint16_t pulse_us)
 }
 
 /**
- * @brief Calcule la sortie servo pour un axe avec stabilisation.
- * @param stickInput   Ordre direct de la radio [-1.0 à 1.0]
- * @param targetRate   Vitesse de rotation cible (deg/s)
- * @param measuredRate Vitesse de rotation mesurée par le gyro (deg/s)
- * @param dt           Delta time entre deux boucles (secondes)
- * @param masterGain   Gain global radio [0.0 à 1.0]
- * @param pid          Pointeur vers la structure PID de l'axe
+ * @brief Compute the PID correction for a given axis based on stick input, target rate, measured rate, and PID configuration.
+ * @param stickInput   Direct order from the stick input, normalized to [-1.0, 1.0]
+ * @param targetRate   Target rotation rate in deg/s
+ * @param measuredRate Measured rotation rate by the gyro in deg/s
+ * @param dt           Delta time between two loops in seconds
+ * @param masterGain   GGlobal radio gain [0.0 to 1.0]
+ * @param pid          Pointer to the PID structure for the axis
  */
-float computeAxisPID(float stickInput, float targetRate, float measuredRate, float dt, float masterGain, PID_Config_t* pid) {
+IRAM_ATTR float computeAxisPID(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float masterGain, PID_Config_t* pid) {
     
-    // a. Calcul de l'erreur de vitesse angulaire
+    // a. Angular rate error normalized to [-1.0, 1.0] range
     float error_nomalized = (targetRate - measuredRate) / pid->maxRateDegs;
 
-    // b. Stick Derating : réduction de la correction si le pilote agit sur le manche
-    float stickFactor = 1.0f - fabsf(stickInput);
+    // b. Stick Derating : reduce correction when stick is near the end of travel to avoid overshoot
+    float stickFactor = 1.0f - fast_fabsf(stickInput);
     if (stickFactor < 0.0f) stickFactor = 0.0f;
 
-    // c. Terme Proportionnel (P)
+    // c. Proportionnal term (P)
     float pTerm = pid->Kp * error_nomalized;
 
-    // d. Terme Intégral (I) avec protection Anti-Windup
+    // d. Integral term (I) with anti-windup and reset when stick is moved
     pid->integralAcc += error_nomalized * dt;
     if (pid->integralAcc > MAX_I_TERM)  pid->integralAcc = MAX_I_TERM;
     if (pid->integralAcc < -MAX_I_TERM) pid->integralAcc = -MAX_I_TERM;
     
-    // Annulation du terme I si le pilote effectue une manœuvre (évite le décalage d'attitude)
-    if (fabsf(stickInput) > 0.05f) {
+    // I term cancellation when stick is moved significantly to avoid integral windup
+    if (fast_fabsf(stickInput) > 0.05f) {
         pid->integralAcc = 0.0f;
     }
     float iTerm = pid->Ki * pid->integralAcc;
 
-    // e. Terme Dérivé (D)
+    // e. Derivate Term (D)
     float dTerm = 0.0f;
     if (dt > 0.0f) {
-        dTerm = pid->Kd * (error_nomalized - pid->prevMeasuredRate) / dt;
+        float rawDerivative = -(measuredRate_low - pid->prevMeasuredRate) / dt;
+        float d_normalized = rawDerivative / pid->maxRateDegs;
+        dTerm = pid->Kd * d_normalized;
     }
-    pid->prevMeasuredRate = measuredRate / pid->maxRateDegs;
+    pid->prevMeasuredRate = measuredRate_low;
 
-    // f. Calcul de la correction Gyro globale pondérée par Master Gain et Stick Derating
+    // f. Final gyro correction with master gain and stick factor
     float gyroCorrection = (pTerm + iTerm + dTerm) * masterGain * stickFactor;
 
-    // g. Superposition de la commande directe pilote et de la correction
-
+    // Invert correction if needed
     if (pid->invert) gyroCorrection = -gyroCorrection;
     float output = stickInput + gyroCorrection;
 
-    // h. Limitation du débattement servo final
+    // h. Clamp output to [-1.0, 1.0] range
     if (output > MAX_SERVO_OUTPUT)  output = MAX_SERVO_OUTPUT;
     if (output < -MAX_SERVO_OUTPUT) output = -MAX_SERVO_OUTPUT;
 
@@ -67,36 +73,47 @@ float computeAxisPID(float stickInput, float targetRate, float measuredRate, flo
 /**
  * @brief Convertit un signal de manche RC en vitesse de rotation cible (deg/s).
  * 
- * @param pulse_us     Largeur d'impulsion du canal (ex: 1000 à 2000 us, neutre à 1500 us)
- * @param max_rate_dps Taux de rotation maximum souhaité en bout de manche (ex: 200.0 deg/s)
- * @param deadband_us  Demi-zone morte autour du neutre (ex: 12 us pour ignorer 1488..1512 us)
+ * @param pulse_us     PWM pulse width in microseconds (e.g., 1000 to 2000)
+ * @param max_rate_dps Rotation rate limit in degrees per second (e.g., 250.0)
+ * @param deadband_us  Half of the deadzone around the center (e.g., 12 us to ignore 1488..1512 us)
  * 
- * @return float Consigne de vitesse de rotation en deg/s
+ * @return float Target rotation rate in deg/s
  */
-float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us) {
-    // 1. Calcul de l'écart par rapport au neutre (1500 µs)
+IRAM_ATTR float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us) {
     int32_t offset = (int32_t)pulse_us - 1500;
 
-    // 2. Gestion de la zone morte (Deadband)
-    if (abs(offset) <= deadband_us) {
+    if (fast_fabsf(offset) <= deadband_us) {
         return 0.0f;
     }
 
-    // Soustraction de la zone morte pour repartir de 0 dès la sortie du neutre (transition douce)
     if (offset > 0) {
         offset -= deadband_us;
     } else {
         offset += deadband_us;
     }
 
-    // 3. Normalisation entre -1.0f et +1.0f
+    // 3. Normalization -1.0f et +1.0f
     float max_range = 500.0f - (float)deadband_us;
     float x = (float)offset / max_range;
 
-    // Saturation de sécurité (au cas où la radio envoie 980 us ou 2020 us)
+    // Clamping to ensure x is within [-1.0, 1.0]
     if (x > 1.0f)  x = 1.0f;
     if (x < -1.0f) x = -1.0f;
 
-    // 5. Conversion en deg/s
+    // 5. Conversion in deg/s
     return x * max_rate_dps;
+}
+
+static float RAD_TO_DEG = 57.295779513f;
+static float ALPHA = 0.98f; // 98% Gyro, 2% Accel
+
+IRAM_ATTR void computeAttitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt) {
+    if (dt <= 0.00001f) return;
+    
+    float accelNorm = fast_sqrtf(ay * ay + az * az);
+    float accelRoll  = fast_atan2(ay, az) * RAD_TO_DEG;
+    float accelPitch = (accelNorm > 0.001f) ? fast_atan2(-ax, accelNorm) * RAD_TO_DEG : attitude->pitchDeg;;
+
+    attitude->rollDeg  = ALPHA * (attitude->rollDeg  + gyroRollDegS  * dt) + (1.0f - ALPHA) * accelRoll;
+    attitude->pitchDeg = ALPHA * (attitude->pitchDeg + gyroPitchDegS * dt) + (1.0f - ALPHA) * accelPitch;
 }
