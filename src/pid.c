@@ -10,7 +10,7 @@
 #define MAX_I_TERM       0.2f
 #define MAX_SERVO_OUTPUT 1.0f
 
-float nomaliseStick(uint16_t pulse_us)
+float nomalise_stick(uint16_t pulse_us)
 {
     return (float)(pulse_us - 1500.0f) / 500.0f;
 }
@@ -24,7 +24,7 @@ float nomaliseStick(uint16_t pulse_us)
  * @param masterGain   GGlobal radio gain [0.0 to 1.0]
  * @param pid          Pointer to the PID structure for the axis
  */
-IRAM_ATTR float computeAxisPID(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float masterGain, PID_Config_t* pid) {
+IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float masterGain, PID_Config_t* pid) {
     
     // a. Angular rate error normalized to [-1.0, 1.0] range
     float error_nomalized = (targetRate - measuredRate) / pid->maxRateDegs;
@@ -104,15 +104,14 @@ IRAM_ATTR float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t d
     return x * max_rate_dps;
 }
 
-static float RAD_TO_DEG = 57.295779513f;
-static float ALPHA = 0.98f; // 98% Gyro, 2% Accel
+#define ALPHA  0.98f // 98% Gyro, 2% Accel
 
-IRAM_ATTR void computeAttitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt) {
+IRAM_ATTR void compute_attitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt) {
     if (dt <= 0.00001f) return;
     
     float accelNorm = fast_sqrtf(ay * ay + az * az);
     float accelRoll  = fast_atan2(ay, az) * RAD_TO_DEG;
-    float accelPitch = (accelNorm > 0.001f) ? fast_atan2(-ax, accelNorm) * RAD_TO_DEG : attitude->pitchDeg;;
+    float accelPitch = (accelNorm > 0.001f) ? fast_atan2(-ax, accelNorm) * RAD_TO_DEG : attitude->pitchDeg;
 
     attitude->rollDeg  = ALPHA * (attitude->rollDeg  + gyroRollDegS  * dt) + (1.0f - ALPHA) * accelRoll;
     attitude->pitchDeg = ALPHA * (attitude->pitchDeg + gyroPitchDegS * dt) + (1.0f - ALPHA) * accelPitch;

@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#define RAD_TO_DEG 57.295779513f
+
 inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us) {
     return (us * 16384) / 20000;
 }
@@ -54,4 +56,14 @@ inline float __attribute__((always_inline)) inv_sqrtf(float x) {
     conv.i = 0x5f3759df - (conv.i >> 1);
     conv.f = conv.f * (1.5f - (halfx * conv.f * conv.f));
     return conv.f;
+}
+
+inline float __attribute__((always_inline)) clampf(float value, float min, float max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+inline uint16_t __attribute__((always_inline)) map_to_pwm(float x) {
+    return (uint16_t)((x+1) * 500.0f + 1500.0f);
 }

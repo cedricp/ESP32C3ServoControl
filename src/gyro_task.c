@@ -100,7 +100,24 @@ static void mpu_configure(void) {
     mpu_write_reg(REG_ACCEL_CONFIG_2, 0x03);  // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
 }
 
-static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
+#define ACCEL_LPF_ALPHA  0.0591f
+
+IRAM_ATTR static void filter_accelerometer(float ax_raw, float ay_raw, float az_raw, 
+                                 float *ax_f, float *ay_f, float *az_f) {
+    static float ax_prev = 0.0f;
+    static float ay_prev = 0.0f;
+    static float az_prev = 1.0f; // 1g initial assumption
+
+    *ax_f = ax_prev + ACCEL_LPF_ALPHA * (ax_raw - ax_prev);
+    *ay_f = ay_prev + ACCEL_LPF_ALPHA * (ay_raw - ay_prev);
+    *az_f = az_prev + ACCEL_LPF_ALPHA * (az_raw - az_prev);
+
+    ax_prev = *ax_f;
+    ay_prev = *ay_f;
+    az_prev = *az_f;
+}
+
+IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
     uint8_t regGyro = REG_GYRO_XOUT_H;
     uint8_t regAccel = REG_ACCEL_XOUT_H;
     uint8_t raw_gyro[6];
@@ -116,9 +133,9 @@ static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
     int16_t gz = (raw_gyro[4] << 8) | raw_gyro[5];
 
     if (offsets != NULL) {
-        out->rot_x = (gx - offsets[0]);
-        out->rot_y = (gy - offsets[1]);
-        out->rot_z = (gz - offsets[2]);
+        out->rot_x = (float)(gx - offsets[0]);  // Explicit cast for clarity
+        out->rot_y = (float)(gy - offsets[1]);
+        out->rot_z = (float)(gz - offsets[2]);
     } else {
         out->rot_x = gx;
         out->rot_y = gy;
@@ -134,15 +151,9 @@ static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
     int16_t ay = (raw_accel[2] << 8) | raw_accel[3];
     int16_t az = (raw_accel[4] << 8) | raw_accel[5];
 
-    if (offsets != NULL) {
-        out->ax = (ax - offsets[3]);
-        out->ay = (ay - offsets[4]);
-        out->az = (az - offsets[5]);
-    } else {
-        out->ax = ax;
-        out->ay = ay;
-        out->az = az;
-    }
+    out->ax = ax;
+    out->ay = ay;
+    out->az = az;
 
     return ESP_OK;
 }
@@ -179,12 +190,7 @@ static void mpu_calibrate_gyro(int16_t *gyro_offsets) {
     gyro_offsets[1] = (int16_t)(sum_y / valid_samples);
     gyro_offsets[2] = (int16_t)(sum_z / valid_samples);
 
-    gyro_offsets[3] = (int16_t)(sum_ax / valid_samples);
-    gyro_offsets[4] = (int16_t)(sum_ay / valid_samples);
-    gyro_offsets[5] = (int16_t)(sum_az / valid_samples);
-
     ESP_LOGI("MPU", "Offsets calculés -> GX: %d, Y: %d, Z: %d\n", gyro_offsets[0], gyro_offsets[1], gyro_offsets[2]);
-    ESP_LOGI("MPU", "Offsets calculés -> AX: %d, AY: %d, AZ: %d\n", gyro_offsets[3], gyro_offsets[4], gyro_offsets[5]);
 }
 
 // Routine d'interruption (ISR) déclenchée par le MPU6500
@@ -225,8 +231,14 @@ void gyro_control_task(void *pvParameters) {
     // FIX 2 : Enregistrer le handle de la tâche en cours pour l'ISR
     float cleanRollRate  = 0.0f, cleanPitchRate = 0.0f, cleanYawRate = 0.0f;
     float cleanRollRate_low  = 0.0f, cleanPitchRate_low = 0.0f, cleanYawRate_low = 0.0f;
-    int16_t gyro_offsets[6] = {0, 0, 0, 0, 0, 0}; // GX, GY, GZ, AX, AY, AZ
+    float rawAx = 0.0f, rawAy = 0.0f, rawAz = 0.0f;
+    float cleanAx = 0.0f, cleanAy = 0.0f, cleanAz = 0.0f;
+    int16_t gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
+
     gyro_t gyro_data;
+    gyro_data.ax = 0.0f;
+    gyro_data.ay = 0.0f;
+    gyro_data.az = 0.0f;
     
     const float dt = 1.0f / 500.0f;
     
@@ -247,16 +259,20 @@ void gyro_control_task(void *pvParameters) {
     mpu_calibrate_gyro(gyro_offsets);
     
     while (1) {
-        // Attente bloquante du signal DRDY (timeout de 10ms par sécurité)
+        // Blocking wait for notification from ISR
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
 
         if (ulNotificationValue > 0) {
-            // DRDY Reçu ! Lecture immédiate des registres du MPU
+            // DRDY Interrup ! Direct read and process the data
             bool valid = false;
             if (mpu_read_gyro(&gyro_data, gyro_offsets) == ESP_OK) {
                 gyro_data.rot_x *= GYRO_SCALE;
                 gyro_data.rot_y *= GYRO_SCALE;
                 gyro_data.rot_z *= GYRO_SCALE;
+
+                rawAx = gyro_data.ax * ACCEL_SCALE_8G;
+                rawAy = gyro_data.ay * ACCEL_SCALE_8G;
+                rawAz = gyro_data.az * ACCEL_SCALE_8G;
 
                 cleanRollRate_low  = applyPT1Filter(&filterGyroRoll_low,  gyro_data.rot_x);
                 cleanPitchRate_low = applyPT1Filter(&filterGyroPitch_low, gyro_data.rot_y);
@@ -265,10 +281,13 @@ void gyro_control_task(void *pvParameters) {
                 cleanRollRate  = applyPT1Filter(&filterGyroRoll,  gyro_data.rot_x);
                 cleanPitchRate = applyPT1Filter(&filterGyroPitch, gyro_data.rot_y);
                 cleanYawRate   = applyPT1Filter(&filterGyroYaw,   gyro_data.rot_z);
+
+                filter_accelerometer(rawAx, rawAy, rawAz, &cleanAx, &cleanAy, &cleanAz);
+
                 valid = true;
             }
 
-            // Mise à jour atomique des globales
+            
             portENTER_CRITICAL(&g_gyro_spinlock);
             g_gyro_data.rot_x = cleanRollRate;
             g_gyro_data.rot_y = cleanPitchRate;
@@ -277,10 +296,14 @@ void gyro_control_task(void *pvParameters) {
             g_gyro_data.rot_x_low = cleanRollRate_low;
             g_gyro_data.rot_y_low = cleanPitchRate_low;
             g_gyro_data.rot_z_low = cleanYawRate_low;
-            
-            g_gyro_data.ax = gyro_data.ax * ACCEL_SCALE_8G;
-            g_gyro_data.ay = gyro_data.ay * ACCEL_SCALE_8G;
-            g_gyro_data.az = gyro_data.az * ACCEL_SCALE_8G;
+
+            g_gyro_data.raw_ax = rawAx;
+            g_gyro_data.raw_ay = rawAy;
+            g_gyro_data.raw_az = rawAz;
+
+            g_gyro_data.ax = cleanAx;
+            g_gyro_data.ay = cleanAy;
+            g_gyro_data.az = cleanAz;
 
             g_gyro_data.valid = valid;
             portEXIT_CRITICAL(&g_gyro_spinlock);

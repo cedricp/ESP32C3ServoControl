@@ -79,8 +79,8 @@ void crsf_rx_task(void *pvParameters) {
             portENTER_CRITICAL(&g_servo_spinlock);
             g_servo_data.valid = 0;
             portEXIT_CRITICAL(&g_servo_spinlock);
-        } else {
-            last_rx_time = xTaskGetTickCount();
+        } else if (bytes_read > 0) {
+            last_rx_time = xTaskGetTickCount();  // ← Only update when data arrives
         }
         
         if (bytes_read > 0)

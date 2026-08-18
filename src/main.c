@@ -28,9 +28,9 @@
 #define NVS_NAMESPACE "storage"
 
 enum {
-    FLIGHTMODE_FREE,
-    FLIGHTMODE_STAB,
-    FLIGHTMODE_LEVEL
+    FLIGHTMODE_FREE = 0,
+    FLIGHTMODE_STAB = 1,
+    FLIGHTMODE_LEVEL = 2
 } flightmode_t;
 
 enum {
@@ -60,7 +60,7 @@ PID_Config_t* get_pid_yaw(void) { return &pidYaw; }
 int g_master_gain_channel = 5;
 int g_flightmode_channel = 6;
 int g_flightmode = 1;
-int g_ouput_mapping[NUM_PWM_OUPUTS];;
+int g_ouput_mapping[NUM_PWM_OUPUTS];
 uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 bool g_invert_channel[NUM_PWM_OUPUTS];
 bool g_elrs_armed = false;
@@ -252,12 +252,22 @@ void test_sequence(const uint32_t *sequence) {
     }
 }
 
-static inline uint16_t computeAxis(PID_Config_t* pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_gain, float dt)
+static inline uint16_t compute_axis(PID_Config_t* pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_gain, float dt)
 {
     float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 5);
-    float stickInput = nomaliseStick(stick_us);
-    float axis_correction = computeAxisPID(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_gain, pid);
-    return (axis_correction + 1) * 500. + 1000.;
+    float stickInput = nomalise_stick(stick_us);
+    float axis_correction = compute_axis_pid(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_gain, pid);
+    return map_to_pwm(axis_correction);
+}
+
+static void init_attitude(attitude_t *attitude, float ax, float ay, float az) {
+    float accelNorm = fast_sqrtf(ay * ay + az * az);
+    
+    // Initialisation directe basée sur la gravité au sol
+    attitude->rollDeg  = fast_atan2(ay, az) * RAD_TO_DEG;
+    attitude->pitchDeg = (accelNorm > 0.001f) 
+                         ? fast_atan2(-ax, accelNorm) * RAD_TO_DEG 
+                         : 0.0f;
 }
 
 // ==========================================
@@ -304,11 +314,13 @@ void servo_update_task(void *pvParameters) {
     int64_t output_timer = esp_timer_get_time();
     
     attitude_t attitude;
-    attitude.pitchDeg = attitude.rollDeg = 0.0f;
+    get_gyro_data(&gyro_data);
+    init_attitude(&attitude, gyro_data.raw_ax, gyro_data.raw_ay, gyro_data.raw_az);  
 
     while (1) {
         get_servo_data(&rx_data);
         get_gyro_data(&gyro_data);
+        bool gyro_failsafe = false;
         
         if (rx_data.valid){
             if (g_master_gain_channel >= 0 && g_master_gain_channel < 8) {
@@ -328,82 +340,75 @@ void servo_update_task(void *pvParameters) {
             g_elrs_armed = rx_data.us_values[4] > 1600;
         }
 
+        int64_t now = esp_timer_get_time();
+        if (last_time == 0) {
+            last_time = now; // First iteration safety
+        }
+
+        float dt = (float)(now - last_time) / 1000000.0f;
+        last_time = now;
+        
+        if (dt <= 0.0005f || dt > 0.020f) {
+            dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
+        }
+
+        if (gyro_data.valid){
+            // This function must always update to keep the attitude estimation correct, even if RX data is not valid
+            compute_attitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
+        }
+
         if (gyro_data.valid && rx_data.valid) {
-            int64_t now = esp_timer_get_time();
-            if (last_time == 0) {
-                last_time = now; // First iteration safety
-            }
-
-            float dt = (float)(now - last_time) / 1000000.0f;
-            last_time = now;
-
-            if (dt <= 0.0005f || dt > 0.020f) {
-                dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
-            }
 
             if (g_flightmode == FLIGHTMODE_LEVEL){
-                computeAttitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
-                
-                float stickInputRoll = nomaliseStick(rx_data.us_values[0]);
+
+                float stickInputRoll = nomalise_stick(rx_data.us_values[0]);
                 float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
                 float targetRateRoll = 4.0f * (targetAngleRoll - attitude.rollDeg);
-                targetRateRoll = targetRateRoll <  -pidRoll.maxRateDegs ? -pidRoll.maxRateDegs : targetRateRoll;
-                targetRateRoll = targetRateRoll >   pidRoll.maxRateDegs ?  pidRoll.maxRateDegs : targetRateRoll;
+                targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
+
                 
-                float stickInputPitch = nomaliseStick(rx_data.us_values[1]);
+                float stickInputPitch = nomalise_stick(rx_data.us_values[1]);
                 float targetAnglePitch = stickInputPitch * 35.0f; // -35° à +35°
                 float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
-                targetRatePitch = targetRatePitch <  -pidPitch.maxRateDegs ? -pidPitch.maxRateDegs : targetRatePitch;
-                targetRatePitch = targetRatePitch >   pidPitch.maxRateDegs ?  pidPitch.maxRateDegs : targetRatePitch;
+                targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
-                rx_data.us_values[CHANNEL_AILERON] = computeAxisPID(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll);
-                rx_data.us_values[CHANNEL_ELEVATOR] = computeAxisPID(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch);
-                rx_data.us_values[CHANNEL_RUDDER] = computeAxis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll));
+                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch));
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+
             } else if (g_flightmode == FLIGHTMODE_STAB){
-                rx_data.us_values[CHANNEL_THROTTLE] = computeAxis(&pidRoll, rx_data.us_values[CHANNEL_THROTTLE], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
-                rx_data.us_values[CHANNEL_ELEVATOR] = computeAxis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_gain, dt);
-                rx_data.us_values[CHANNEL_RUDDER] = computeAxis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+
+                rx_data.us_values[CHANNEL_AILERON]  = compute_axis(&pidRoll, rx_data.us_values[CHANNEL_AILERON], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_ELEVATOR] = compute_axis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+
             }
+
         } else if (gyro_data.valid && !rx_data.valid) {
-            int64_t now = esp_timer_get_time();
-            if (last_time == 0) {
-                last_time = now; // First iteration safety
-            }
-
-            float dt = (float)(now - last_time) / 1000000.0f;
-            last_time = now;
-
-            if (dt <= 0.0005f || dt > 0.020f) {
-                dt = 0.02f; // Fallback nominal à 20 ms (1/50 Hz)
-            }
-
-            // No valid RX data, but gyro is valid. Try to autolevel and turn with no thrust
-            computeAttitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
             
+            // Failsafe mode: no RX data, but gyro is valid. Try to keep plane flat and turning
             float stickInputRoll = 0.5f; // ~22% roll angle
             float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
             float targetRateRoll = 4.0f * (targetAngleRoll - attitude.rollDeg);
-            targetRateRoll = targetRateRoll <  -pidRoll.maxRateDegs ? -pidRoll.maxRateDegs : targetRateRoll;
-            targetRateRoll = targetRateRoll >   pidRoll.maxRateDegs ?  pidRoll.maxRateDegs : targetRateRoll;
-            
-            // TODO : check stab inverted or not
+            targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
+
             float stickInputPitch = -0.3f; // ~10% pitch angle
             float targetAnglePitch = stickInputPitch * 35.0f; 
             float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
-            targetRatePitch = targetRatePitch <  -pidPitch.maxRateDegs ? -pidPitch.maxRateDegs : targetRatePitch;
-            targetRatePitch = targetRatePitch >   pidPitch.maxRateDegs ?  pidPitch.maxRateDegs : targetRatePitch;
+            targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
-            rx_data.us_values[CHANNEL_AILERON] = computeAxisPID(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll);
-            rx_data.us_values[CHANNEL_ELEVATOR] = computeAxisPID(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch);
+            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(stickInputRoll, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll));
+            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(stickInputPitch, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch));
             rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
-            rx_data.us_values[CHANNEL_RUDDER] = 1500; // Yaw neutral
+            rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
+            gyro_failsafe = true;
         }
         
         int64_t delta = esp_timer_get_time() - servo_timer;
         if (delta > 20000) {
-            // 50 Hz refresh (200 ms)
+            // 50 Hz refresh (20 ms)
             servo_timer = esp_timer_get_time();
-            if (rx_data.valid) {
+            if (rx_data.valid || gyro_failsafe) {
                 for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
                     uint16_t us = rx_data.us_values[g_ouput_mapping[i]];
                     
@@ -419,7 +424,7 @@ void servo_update_task(void *pvParameters) {
                 }
                 radio_init = true;
             } else if (radio_init) {
-                // --- FAILSAFE MODE ---
+                // --- FINAL FAILSAFE MODE IF GYRO IS NOT WORKING ---
                 // No data since 250ms, set all servos to failsafe values
                 for (int i = 0; i < NUM_PWM_OUPUTS; i++) {
                     ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(g_failsafe_us[i]));
@@ -432,6 +437,7 @@ void servo_update_task(void *pvParameters) {
             printf("Servo values : %d %d %d %d %d %d\n", rx_data.us_values[0], rx_data.us_values[1], rx_data.us_values[2], rx_data.us_values[3], rx_data.us_values[4], rx_data.us_values[5]);
             printf("Gyro values : %f %f %f\n", gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z);
             printf("Master gain : %f channel : %d\n", master_gain, g_master_gain_channel);
+            printf("Attitude : roll %f pitch %f\n", attitude.rollDeg, attitude.pitchDeg);
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
