@@ -132,6 +132,8 @@ void savePidConfig()
     nvs_save_struct("pid_roll", &pidRoll, sizeof(PID_Config_t));
     nvs_save_struct("pid_pitch", &pidPitch, sizeof(PID_Config_t));
     nvs_save_struct("pid_yaw", &pidYaw, sizeof(PID_Config_t));
+    nvs_save_struct("master_gain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel));
+    nvs_save_struct("flightmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel));
 }
 
 void loadPidConfig()
@@ -139,6 +141,8 @@ void loadPidConfig()
     nvs_load_struct("pid_roll", &pidRoll, sizeof(PID_Config_t));
     nvs_load_struct("pid_pitch", &pidPitch, sizeof(PID_Config_t));
     nvs_load_struct("pid_yaw", &pidYaw, sizeof(PID_Config_t));
+    nvs_load_struct("master_gain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel));
+    nvs_load_struct("flightmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel));
 }
 
 void savePWMConfig()
@@ -152,7 +156,7 @@ void loadPWMConfig()
 {
     nvs_load_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
     nvs_load_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
-    nvs_load_struct("pwm_failsafe", g_failsafe_us, sizeof(g_invert_channel));
+    nvs_load_struct("pwm_failsafe", g_failsafe_us, sizeof(g_failsafe_us));
 }
 
 void init_pid_factory()
