@@ -53,6 +53,8 @@ typedef struct {
 static const float GYRO_SCALE = 1.0f / 65.5f;  // LSB/(deg/s) pour ±500dps, cf datasheet
 static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
+extern bool g_invert_accel[3];
+
 // cutoff could be tuned for latency issue (less is induce more lag)
 FilterPT1 filterGyroRoll;
 FilterPT1 filterGyroPitch;
@@ -118,19 +120,18 @@ IRAM_ATTR static void filter_accelerometer(float ax_raw, float ay_raw, float az_
 }
 
 IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
-    uint8_t regGyro = REG_GYRO_XOUT_H;
-    uint8_t regAccel = REG_ACCEL_XOUT_H;
-    uint8_t raw_gyro[6];
-    uint8_t raw_accel[6];
+    uint8_t buffer[14];
+    uint8_t reg = REG_ACCEL_XOUT_H;
 
-    esp_err_t err = i2c_master_transmit_receive(
-        mpu_handle, &regGyro, 1, raw_gyro, 6, pdMS_TO_TICKS(I2C_TIMEOUT_MS)
+    // Transaction I2C unique : Écriture de l'adresse du registre puis lecture en rafale (burst)
+    esp_err_t ret = i2c_master_transmit_receive(
+        mpu_handle, &reg, 1, buffer, sizeof(buffer), pdMS_TO_TICKS(I2C_TIMEOUT_MS)
     );
-    if (err != ESP_OK) return err;
+    if (ret != ESP_OK) return ret;
 
-    int16_t gx = (raw_gyro[0] << 8) | raw_gyro[1];
-    int16_t gy = (raw_gyro[2] << 8) | raw_gyro[3];
-    int16_t gz = (raw_gyro[4] << 8) | raw_gyro[5];
+    int16_t gx = (int16_t)(buffer[8] << 8) | buffer[9];
+    int16_t gy = (int16_t)(buffer[10] << 8) | buffer[11];
+    int16_t gz = (int16_t)(buffer[12] << 8) | buffer[13];
 
     if (offsets != NULL) {
         out->rot_x = (float)(gx - offsets[0]);  // Explicit cast for clarity
@@ -142,14 +143,9 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
         out->rot_z = gz;
     }
 
-    err = i2c_master_transmit_receive(
-        mpu_handle, &regAccel, 1, raw_accel, 6, pdMS_TO_TICKS(I2C_TIMEOUT_MS)
-    );
-    if (err != ESP_OK) return err;
-
-    int16_t ax = (raw_accel[0] << 8) | raw_accel[1];
-    int16_t ay = (raw_accel[2] << 8) | raw_accel[3];
-    int16_t az = (raw_accel[4] << 8) | raw_accel[5];
+    int16_t ax = (int16_t)(buffer[0] << 8) | buffer[1];
+    int16_t ay = (int16_t)(buffer[2] << 8) | buffer[3];
+    int16_t az = (int16_t)(buffer[4] << 8) | buffer[5];
 
     out->ax = ax;
     out->ay = ay;
@@ -257,11 +253,11 @@ void gyro_control_task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(500));
 
     mpu_calibrate_gyro(gyro_offsets);
-    
+
     while (1) {
         // Blocking wait for notification from ISR
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
-
+        
         if (ulNotificationValue > 0) {
             // DRDY Interrup ! Direct read and process the data
             bool valid = false;
@@ -273,6 +269,10 @@ void gyro_control_task(void *pvParameters) {
                 rawAx = gyro_data.ax * ACCEL_SCALE_8G;
                 rawAy = gyro_data.ay * ACCEL_SCALE_8G;
                 rawAz = gyro_data.az * ACCEL_SCALE_8G;
+
+                if (g_invert_accel[0]) rawAx = -rawAx;
+                if (g_invert_accel[1]) rawAy = -rawAy;
+                if (g_invert_accel[2]) rawAz = -rawAz;
 
                 cleanRollRate_low  = applyPT1Filter(&filterGyroRoll_low,  gyro_data.rot_x);
                 cleanPitchRate_low = applyPT1Filter(&filterGyroPitch_low, gyro_data.rot_y);

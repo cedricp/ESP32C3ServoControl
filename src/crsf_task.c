@@ -3,10 +3,15 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
-#include "types.h"
-#include "utils.h"
 #include <string.h>
 #include "esp_attr.h"
+
+#define CRSF_RX_PIN         GPIO_NUM_3       
+#define CRSF_TX_PIN         GPIO_NUM_NC 
+#define CRSF_BAUD_RATE      420000
+#define CRSF_TIMEOUT_MS     250
+
+#define CRSF_UART_PORT      UART_NUM_0
 
 portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
 servo_data_t g_servo_data;
@@ -60,7 +65,7 @@ void crsf_rx_task(void *pvParameters) {
     };
 
     uart_param_config(CRSF_UART_PORT, &uart_config);
-    uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
     uart_driver_install(CRSF_UART_PORT, 1024, 0, 0, NULL, 0);
 
     TickType_t last_rx_time = xTaskGetTickCount();

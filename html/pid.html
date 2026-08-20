@@ -239,7 +239,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="roll_kd_v">0.0000</span></div>
-                    <input type="range" id="roll_kd" min="0" max="0.5" step="0.005" value="0.050">
+                    <input type="range" id="roll_kd" min="0" max="0.3" step="0.05" value="0.0">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="roll_rate_v">250</span></div>
@@ -262,7 +262,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="pitch_kd_v">0.0000</span></div>
-                    <input type="range" id="pitch_kd" min="0" max="0.5" step="0.005" value="0.050">
+                    <input type="range" id="pitch_kd" min="0" max="0.3" step="0.05" value="0.0">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="pitch_rate_v">150</span></div>
@@ -285,7 +285,7 @@
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Kd</span><span class="val" id="yaw_kd_v">0.0000</span></div>
-                    <input type="range" id="yaw_kd" min="0" max="0.5" step="0.005" value="0.0000">
+                    <input type="range" id="yaw_kd" min="0" max="0.3" step="0.05" value="0.0000">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="yaw_rate_v">120</span></div>
@@ -299,6 +299,29 @@
                     </label>
                 </div>
             </div>
+
+            <div class="card">
+                <h2>Accelerometers</h2>
+                <div class="control-group checkbox-group">
+                    <label for="X axis accel invert" class="checkbox-label"></label>
+                        <span>Invert X axis</span>
+                        <input type="checkbox" id="invertax">
+                    </label>
+                </div>
+                <div class="control-group checkbox-group">
+                    <label for="Y axis accel invert" class="checkbox-label"></label>
+                        <span>Invert Y axis</span>
+                        <input type="checkbox" id="invertay">
+                    </label>
+                </div
+                <div class="control-group checkbox-group">
+                    <label for="Z axis accel invert" class="checkbox-label"></label>
+                        <span>Invert Z axis</span>
+                        <input type="checkbox" id="invertaz">
+                    </label>
+                </div
+            </div>
+
         </div>
 
         <div class="actions">
@@ -418,7 +441,11 @@
             yaw_kp: parseFloat(document.getElementById('yaw_kp').value),
             yaw_kd: parseFloat(document.getElementById('yaw_kd').value),
             yaw_rate: parseFloat(document.getElementById('yaw_rate').value),
-            yaw_invert: document.getElementById('yaw_invert').checked
+            yaw_invert: document.getElementById('yaw_invert').checked,
+
+            invertax: document.getElementById('invertax').checked,
+            invertay: document.getElementById('invertay').checked,
+            invertaz: document.getElementById('invertaz').checked
         };
 
         fetch('/api/config', {

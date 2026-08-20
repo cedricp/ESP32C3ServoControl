@@ -13,11 +13,11 @@
 #include "captdns.h"
 #include "gyro_task.h"
 #include "pid.h"
-#include "types.h"
 #include "pid.html.h"
 #include "output.html.h"
+#include "utils.h"
 
-static httpd_handle_t g_server = NULL;
+static httpd_handle_t g_server_handle = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
 static esp_netif_t *esp_netif_handle = NULL;
 
@@ -32,6 +32,8 @@ extern int g_flightmode_channel;
 extern int g_ouput_mapping[NUM_PWM_OUPUTS];
 extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 extern bool g_invert_channel[NUM_PWM_OUPUTS];
+
+extern bool g_invert_accel[3];
 
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
@@ -92,7 +94,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     cJSON *item = cJSON_GetObjectItem(json, "roll_kp");
     if (item) g_pidroll_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_kd");
-    if (item) g_pidroll_config->Kd = item->valuedouble / 1000.0;
+    if (item) g_pidroll_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "roll_rate");
     if (item) g_pidroll_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_invert");
@@ -104,7 +106,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     item = cJSON_GetObjectItem(json, "pitch_kp");
     if (item) g_pidpitch_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_kd");
-    if (item) g_pidpitch_config->Kd = item->valuedouble / 1000.0;
+    if (item) g_pidpitch_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "pitch_rate");
     if (item) g_pidpitch_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_invert");
@@ -116,7 +118,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
     item = cJSON_GetObjectItem(json, "yaw_kp");
     if (item) g_pidyaw_config->Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_kd");
-    if (item) g_pidyaw_config->Kd = item->valuedouble / 1000.0;
+    if (item) g_pidyaw_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "yaw_rate");
     if (item) g_pidyaw_config->maxRateDegs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_invert");
@@ -129,6 +131,15 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
     item = cJSON_GetObjectItem(json, "flightmode_channel");
     if (item) g_flightmode_channel = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "invertax");
+    if (item) g_invert_accel[0] = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "invertay");
+    if (item) g_invert_accel[1] = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "invertaz");
+    if (item) g_invert_accel[2] = item->valueint;
 
     cJSON_Delete(json);
 
@@ -235,19 +246,19 @@ esp_err_t config_get_handler(httpd_req_t *req) {
 
     // Axis: Roll
     cJSON_AddNumberToObject(json, "roll_kp",   g_pidroll_config->Kp);
-    cJSON_AddNumberToObject(json, "roll_kd",   g_pidroll_config->Kd * 1000.0f);
+    cJSON_AddNumberToObject(json, "roll_kd",   g_pidroll_config->Kd * 10.0f);
     cJSON_AddNumberToObject(json, "roll_rate", g_pidroll_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "roll_invert", g_pidroll_config->invert);
 
     // Axis: Pitch
     cJSON_AddNumberToObject(json, "pitch_kp",   g_pidpitch_config->Kp);
-    cJSON_AddNumberToObject(json, "pitch_kd",   g_pidpitch_config->Kd * 1000.0f);
+    cJSON_AddNumberToObject(json, "pitch_kd",   g_pidpitch_config->Kd * 10.0f);
     cJSON_AddNumberToObject(json, "pitch_rate", g_pidpitch_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "pitch_invert", g_pidpitch_config->invert);
 
     // Axis: Yaw
     cJSON_AddNumberToObject(json, "yaw_kp",   g_pidyaw_config->Kp);
-    cJSON_AddNumberToObject(json, "yaw_kd",   g_pidyaw_config->Kd * 1000.0f);
+    cJSON_AddNumberToObject(json, "yaw_kd",   g_pidyaw_config->Kd * 10.0f);
     cJSON_AddNumberToObject(json, "yaw_rate", g_pidyaw_config->maxRateDegs);
     cJSON_AddBoolToObject(json, "yaw_invert", g_pidyaw_config->invert);
 
@@ -276,6 +287,10 @@ esp_err_t config_get_handler(httpd_req_t *req) {
     cJSON_AddBoolToObject(json, "invert_channel3", g_invert_channel[3]);
     cJSON_AddBoolToObject(json, "invert_channel4", g_invert_channel[4]);
     cJSON_AddBoolToObject(json, "invert_channel5", g_invert_channel[5]);
+
+    cJSON_AddBoolToObject(json, "invertax", g_invert_accel[0]);
+    cJSON_AddBoolToObject(json, "invertay", g_invert_accel[1]);
+    cJSON_AddBoolToObject(json, "invertaz", g_invert_accel[2]);
 
     // 3. Conversion de l'objet JSON en chaîne de caractères (non formatée = plus compacte)
     char *json_str = cJSON_PrintUnformatted(json);
@@ -363,14 +378,14 @@ static void wifi_init_softap(void)
 
 int server_is_running(void)
 {
-    return g_server != NULL;
+    return (g_server_handle != NULL && dns_server_handle != NULL);
 }
 
 void stop_webserver(void)
 {
-    if (g_server) {
-        httpd_stop(g_server);
-        g_server = NULL;
+    if (g_server_handle) {
+        httpd_stop(g_server_handle);
+        g_server_handle = NULL;
         esp_wifi_stop();
         esp_wifi_deinit();
         if (esp_netif_handle) {
@@ -400,7 +415,7 @@ void start_webserver(void)
     config.max_uri_handlers = 15;
     config.lru_purge_enable = true;
 
-    if (httpd_start(&g_server, &config) == ESP_OK) {
+    if (httpd_start(&g_server_handle, &config) == ESP_OK) {
         // Handler pour l'adresse racine
         httpd_uri_t root = {
             .uri = "/",
@@ -472,17 +487,17 @@ void start_webserver(void)
             .user_ctx = NULL
         };
         
-        httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, http_404_error_handler);
-        httpd_register_uri_handler(g_server, &root);
-        httpd_register_uri_handler(g_server, &output);
-        httpd_register_uri_handler(g_server, &uri_config_get);
-        httpd_register_uri_handler(g_server, &uri_config_post);
-        httpd_register_uri_handler(g_server, &uri_configpwm_post);
-        httpd_register_uri_handler(g_server, &uri_factorypid_post);
-        httpd_register_uri_handler(g_server, &uri_factorypwm_post);
-        httpd_register_uri_handler(g_server, &gen204b);
-        httpd_register_uri_handler(g_server, &generate204b);
-        httpd_register_uri_handler(g_server, &redirect);
+        httpd_register_err_handler(g_server_handle, HTTPD_404_NOT_FOUND, http_404_error_handler);
+        httpd_register_uri_handler(g_server_handle, &root);
+        httpd_register_uri_handler(g_server_handle, &output);
+        httpd_register_uri_handler(g_server_handle, &uri_config_get);
+        httpd_register_uri_handler(g_server_handle, &uri_config_post);
+        httpd_register_uri_handler(g_server_handle, &uri_configpwm_post);
+        httpd_register_uri_handler(g_server_handle, &uri_factorypid_post);
+        httpd_register_uri_handler(g_server_handle, &uri_factorypwm_post);
+        httpd_register_uri_handler(g_server_handle, &gen204b);
+        httpd_register_uri_handler(g_server_handle, &generate204b);
+        httpd_register_uri_handler(g_server_handle, &redirect);
     }
 
     dns_server_config_t dns_config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);
