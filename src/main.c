@@ -41,13 +41,15 @@ enum {
 } channels_t;
 
 // #define DEBUG_STACK 1
-#define DEBUG_GYRO 1
+// #define DEBUG_GYRO 1
 
 const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
 
 const uint32_t test_sequence_us_1[NUM_PWM_OUPUTS] = {990, 1000, 2000, 1000, 1000, 1000};
 const uint32_t test_sequence_us_2[NUM_PWM_OUPUTS] = {1500, 1500, 2000, 1500, 1000, 1500};
 const uint32_t test_sequence_us_3[NUM_PWM_OUPUTS] = {2000, 2000, 2000, 2000, 1000, 2000};
+
+uint8_t g_crash_reasons[4] = {0, 0, 0, 0};
 
 PID_Config_t pidRoll;
 PID_Config_t pidPitch;
@@ -196,6 +198,13 @@ static void blink_led(int times, int delay_ms, bool finish_lit) {
     }
 }
 
+void reset_crash(void) {
+    for (int i = 0; i < 4; i++) {
+        g_crash_reasons[i] = 0;
+    }
+    nvs_save_struct("crash", &g_crash_reasons, sizeof(g_crash_reasons));
+}  
+
 // ==========================================
 // Failsafe button task
 // ==========================================
@@ -221,17 +230,38 @@ void actions_task(void *pvParameters) {
     // Start LED off
     gpio_set_level(ONBOARD_LED_PIN, 1);
 
+    nvs_load_struct("crash", &g_crash_reasons, sizeof(g_crash_reasons));
+
+    uint8_t reboot_reason = (uint8_t)esp_reset_reason();
+    if (reboot_reason == ESP_RST_BROWNOUT) {
+        blink_led(reboot_reason, 200, false);
+    }
+
+    if (reboot_reason > ESP_RST_POWERON) {
+        g_crash_reasons[3] = g_crash_reasons[2];
+        g_crash_reasons[2] = g_crash_reasons[1];
+        g_crash_reasons[1] = g_crash_reasons[0];
+        g_crash_reasons[0] = reboot_reason;
+        nvs_save_struct("crash", &g_crash_reasons, sizeof(g_crash_reasons));
+    }
+
     vTaskDelay(3000);
+
+    for (int i = 0; i < 4; i++) {
+        printf("Reset reason (receny to old) %d: %s\n", i, reset_reason_to_str(g_crash_reasons[i]));
+    }
 
     while (1) {
         if (g_elrs_data_valid && is_elrs_armed() && server_is_running()){
             // Deactivate server when ELRS is armed
             stop_webserver();
+            printf("Server stopped\n");
             blink_led(4, 200, false); // Visual feedback for server off
             vTaskDelay(3000);
         }
 
         if (g_elrs_data_valid && !is_elrs_armed() && !server_is_running()){
+            printf("Server started\n");
             start_webserver();
             blink_led(4, 200, true); // Visual feedback for server on
             vTaskDelay(3000);
@@ -371,7 +401,6 @@ void servo_update_task(void *pvParameters) {
             //mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
         }
 
-        float tp = 0.f;
         if (gyro_data.valid && rx_data.valid) {
             
             if (g_flightmode == FLIGHTMODE_LEVEL){
@@ -386,7 +415,6 @@ void servo_update_task(void *pvParameters) {
                 float targetAnglePitch = -stickInputPitch * 35.0f; // -35° à +35°
                 float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
                 //targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
-                tp = targetRatePitch;
 
                 rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
                 rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
@@ -453,7 +481,7 @@ void servo_update_task(void *pvParameters) {
             //printf("Servo values : %d %d %d %d %d %d\n", rx_data.us_values[0], rx_data.us_values[1], rx_data.us_values[2], rx_data.us_values[3], rx_data.us_values[4], rx_data.us_values[5]);
             printf("Gyro values : %f %f %f\n", gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z);
            // printf("Accel values : %f %f %f\n", gyro_data.ax, gyro_data.ay, gyro_data.az);
-            printf("Attitude : roll %f pitch %f targetp %f dt %f\n", attitude.rollDeg, attitude.pitchDeg,  tp, dt);
+            printf("Attitude : roll %f pitch %f dt %f\n", attitude.rollDeg, attitude.pitchDeg, dt);
         }
 #endif
         vTaskDelay(pdMS_TO_TICKS(1));

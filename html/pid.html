@@ -162,6 +162,13 @@
             height: 20px;
         }
 
+        #crash_status {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            height: 20px;
+        }
+
         #fmstatus {
             text-align: center;
             margin-top: 15px;
@@ -324,11 +331,19 @@
 
         </div>
 
+
         <div class="actions">
             <button type="button" id="saveBtn" onclick="saveConfig()">Save PID config</button>
         </div>
         
         <div id="status"></div>
+
+        
+        <div class="actions">
+            <button type="button" id="resetCrashBtn" onclick="resetCrash()">Reset stored CPU crashes</button>
+        </div>
+
+        <div id="crash_status"></div>
 
         <div class="actions">
             <button type="button" id="factoryBtn" onclick="initFactory()">Restore factory defaults</button>
@@ -350,18 +365,22 @@
     window.addEventListener('DOMContentLoaded', loadConfig);
 
     function loadConfig() {
+        const crash_status = document.getElementById('crash_status');
+        const fmstatus = document.getElementById('fmstatus');
         const modeLabels = {
             0: 'FREE',
             1: 'STAB',
             2: 'LEVEL'
         };
-        const fmstatus = document.getElementById('fmstatus');
         fmstatus.textContent = "Current : No data";
         fetch('/api/config')
         .then(response => response.json())
         .then(data => {
             if (fmstatus && data.flightmode !== undefined) {
                 fmstatus.textContent = "Current : " + modeLabels[data.flightmode];
+            }
+            if (crash_status && data.crash_reason !== undefined) {
+                crash_status.textContent = "Last crash reason : " + data.crash_reason;
             }
             for (const key in data) {
                 const input = document.getElementById(key);
@@ -409,6 +428,33 @@
         .catch(err => {
             status.className = 'error';
             status.textContent = "Failed to restore parameters.";
+        })
+        .finally(() => {
+            btn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 4000);
+        });
+        loadConfig();
+    }
+
+    function resetCrash() {
+        const btn = document.getElementById('resetCrashBtn');
+        const status = document.getElementById('status');
+
+        fetch('/api/resetcrash', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (res.ok) {
+                status.className = 'success';
+                status.textContent = "Parameters restored!";
+            } else {
+                throw new Error("Erreur serveur");
+            }
+        })
+        .catch(err => {
+            status.className = 'error';
+            status.textContent = "Failed to reset crashes.";
         })
         .finally(() => {
             btn.disabled = false;

@@ -32,6 +32,7 @@ extern int g_flightmode_channel;
 extern int g_ouput_mapping[NUM_PWM_OUPUTS];
 extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 extern bool g_invert_channel[NUM_PWM_OUPUTS];
+extern uint8_t g_crash_reasons[4];
 
 extern bool g_invert_accel[3];
 
@@ -39,6 +40,7 @@ extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
 extern void savePidConfig(void);
 extern void savePWMConfig(void);
+extern void reset_crash(void);
 
 static void dhcp_set_captiveportal_url(void) {
     // get the IP of the access point to redirect to
@@ -158,6 +160,12 @@ esp_err_t config_factorypid_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+esp_err_t config_resetcrash_handler(httpd_req_t *req) {
+    reset_crash();
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
 esp_err_t config_factorypwm_handler(httpd_req_t *req) {
     init_pwm_factory();
     httpd_resp_sendstr(req, "OK");
@@ -266,6 +274,7 @@ esp_err_t config_get_handler(httpd_req_t *req) {
 
     cJSON_AddNumberToObject(json, "flightmode", g_flightmode);
     cJSON_AddNumberToObject(json, "flightmode_channel", g_flightmode_channel);
+    cJSON_AddStringToObject(json, "crash_reason", reset_reason_to_str(g_crash_reasons[0]));
 
     cJSON_AddNumberToObject(json, "channel0", g_ouput_mapping[0]);
     cJSON_AddNumberToObject(json, "channel1", g_ouput_mapping[1]);
@@ -374,6 +383,7 @@ static void wifi_init_softap(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(40));
 }
 
 int server_is_running(void)
@@ -386,23 +396,28 @@ void stop_webserver(void)
     if (g_server_handle) {
         httpd_stop(g_server_handle);
         g_server_handle = NULL;
-        esp_wifi_stop();
-        esp_wifi_deinit();
-        if (esp_netif_handle) {
-            esp_netif_destroy(esp_netif_handle);
-            esp_netif_handle = NULL;
-        }
-        ESP_ERROR_CHECK(esp_event_loop_delete_default());
     }
-    
     stop_dns_server(dns_server_handle);
     dns_server_handle = NULL;
+
+    esp_wifi_set_mode(WIFI_MODE_NULL);
+    esp_wifi_stop();
+    esp_wifi_deinit();
+    if (esp_netif_handle) {
+        esp_netif_destroy(esp_netif_handle);
+        esp_netif_handle = NULL;
+    }
+    //ESP_ERROR_CHECK(esp_event_loop_delete_default());
 }
 
 void start_webserver(void)
 {
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    static bool netif_init = false;
+    if (!netif_init) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+        netif_init = true;
+    }
 
     esp_netif_handle = esp_netif_create_default_wifi_ap();
 
@@ -459,6 +474,13 @@ void start_webserver(void)
             .user_ctx  = NULL
         };
 
+        static const httpd_uri_t uri_resetcrash_post = {
+            .uri       = "/api/resetcrash",
+            .method    = HTTP_POST,
+            .handler   = config_resetcrash_handler, // Votre fonction
+            .user_ctx  = NULL
+        };
+
         static const httpd_uri_t uri_factorypwm_post = {
             .uri       = "/api/pwmfactory",
             .method    = HTTP_POST,
@@ -495,6 +517,7 @@ void start_webserver(void)
         httpd_register_uri_handler(g_server_handle, &uri_configpwm_post);
         httpd_register_uri_handler(g_server_handle, &uri_factorypid_post);
         httpd_register_uri_handler(g_server_handle, &uri_factorypwm_post);
+        httpd_register_uri_handler(g_server_handle, &uri_resetcrash_post);
         httpd_register_uri_handler(g_server_handle, &gen204b);
         httpd_register_uri_handler(g_server_handle, &generate204b);
         httpd_register_uri_handler(g_server_handle, &redirect);

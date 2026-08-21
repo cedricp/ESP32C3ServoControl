@@ -9,6 +9,8 @@
 #define NUM_PWM_OUPUTS      6
 #define NUM_CRSF_CHANNELS   8
 
+const char* reset_reason_to_str(uint8_t reason);
+
 typedef struct {
     uint16_t us_values[NUM_CRSF_CHANNELS];
     char valid;

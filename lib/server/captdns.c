@@ -205,6 +205,9 @@ static void dns_server_task(void *pvParameters)
         }
         ESP_LOGI(TAG, "Socket created");
 
+        int opt = 1;
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        
         int err = bind(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (err < 0) {
             ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
