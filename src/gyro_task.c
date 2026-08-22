@@ -95,7 +95,7 @@ static void mpu_configure(void) {
 
     mpu_write_reg(REG_GYRO_CONFIG, 0x08);     // ±500 deg/s (FS_SEL = 1)
     mpu_write_reg(REG_CONFIG, 0x03);          // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
-    mpu_write_reg(REG_SMPLRT_DIV, 0x01);      // Sample rate de sortie = 1kHz / (1+1) = 500Hz
+    mpu_write_reg(REG_SMPLRT_DIV, 0x00);      // Sample rate de sortie = 1kHz / (1+1) = 500Hz
     mpu_write_reg(REG_INT_ENABLE, 0x01);      // Enable interrupts
     mpu_write_reg(REG_INT_CFG, 0x10);         // Interrupt on data ready
     mpu_write_reg(REG_ACCEL_CONFIG, 0x10);    // 8g full scale range
@@ -236,7 +236,7 @@ void gyro_control_task(void *pvParameters) {
     gyro_data.ay = 0.0f;
     gyro_data.az = 0.0f;
     
-    const float dt = 1.0f / 500.0f;
+    const float dt = 1.0f / 1000.0f;
     
     initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, dt); 
     initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, dt);
@@ -254,10 +254,17 @@ void gyro_control_task(void *pvParameters) {
 
     mpu_calibrate_gyro(gyro_offsets);
 
+    // uint64_t timer = esp_timer_get_time();
+    // uint32_t counter = 0;
     while (1) {
         // Blocking wait for notification from ISR
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
-        
+        // counter++;
+        // if (esp_timer_get_time() - timer > 1000000) {
+        //     ESP_LOGI("MPU", "Gyro loop : %lu", counter);
+        //     timer = esp_timer_get_time();
+        //     counter = 0;
+        // }
         if (ulNotificationValue > 0) {
             // DRDY Interrup ! Direct read and process the data
             bool valid = false;

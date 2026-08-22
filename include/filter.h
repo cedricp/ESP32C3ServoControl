@@ -10,7 +10,7 @@ void initPT1Filter(FilterPT1 *filter, float cutoffFreq, float dt) {
     filter->cutoffFreq = cutoffFreq;
     
     // Calcul de la constante de temps Tau (rc = 1 / (2 * pi * f_c))
-    float rc = 1.0 / (2.0 * 3.14159265 * cutoffFreq);
+    float rc = 1.0f / (2.0f * 3.14159265f * cutoffFreq);
     
     // Calcul du coefficient alpha
     filter->alpha = dt / (rc + dt);

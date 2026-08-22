@@ -66,7 +66,7 @@ IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measu
     float gyroCorrection = (pTerm + iTerm + dTerm) * masterGain * stickFactor;
 
     // Invert correction if needed
-    if (pid->invert) gyroCorrection = -gyroCorrection;
+    //if (pid->invert) gyroCorrection = -gyroCorrection;
     float output = stickInput + gyroCorrection;
 
     // h. Clamp output to [-1.0, 1.0] range

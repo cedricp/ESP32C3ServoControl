@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -40,8 +41,8 @@ enum {
     CHANNEL_ARM
 } channels_t;
 
-// #define DEBUG_STACK 1
-// #define DEBUG_GYRO 1
+//#define DEBUG_STACK 1
+//#define DEBUG_GYRO 1
 
 const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
 
@@ -95,7 +96,9 @@ static void init_pid(PID_Config_t* pid, float Kp, float Ki, float Kd, float maxR
 esp_err_t nvs_save_struct(const char *key, const void *data, size_t size) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK){
+        printf("Error opening NVS namespace for save '%s'\n", NVS_NAMESPACE);
+    } 
 
     // Écriture du bloc mémoire brut (BLOB)
     err = nvs_set_blob(handle, key, data, size);
@@ -113,7 +116,9 @@ esp_err_t nvs_save_struct(const char *key, const void *data, size_t size) {
 esp_err_t nvs_load_struct(const char *key, void *data, size_t size) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK){
+        printf("Error opening NVS namespace for load '%s'\n", NVS_NAMESPACE);
+    } 
 
     size_t required_size = size;
     err = nvs_get_blob(handle, key, data, &required_size);
@@ -133,22 +138,23 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size) {
 
 void savePidConfig()
 {
-    nvs_save_struct("pid_roll", &pidRoll, sizeof(pidRoll));
-    nvs_save_struct("pid_pitch", &pidPitch, sizeof(pidPitch));
-    nvs_save_struct("pid_yaw", &pidYaw, sizeof(pidYaw));
-    nvs_save_struct("master_gain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel));
-    nvs_save_struct("flightmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel));
-    nvs_save_struct("accel_invert", &g_invert_accel, sizeof(g_invert_accel));
+    if(nvs_save_struct("pid_roll", &pidRoll, sizeof(pidRoll)) != ESP_OK){printf("Error saving pid_roll\n");}
+    if(nvs_save_struct("pid_pitch", &pidPitch, sizeof(pidPitch)) != ESP_OK){printf("Error saving pid_pitch\n");}
+    if(nvs_save_struct("pid_yaw", &pidYaw, sizeof(pidYaw)) != ESP_OK){printf("Error saving pid_yaw\n");}
+    if(nvs_save_struct("mgain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel)) != ESP_OK){printf("Error saving master_gain_channel\n");}
+    if(nvs_save_struct("fmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel)) != ESP_OK){printf("Error saving flightmode_channel\n");}
+    if(nvs_save_struct("accel_invert", &g_invert_accel, sizeof(g_invert_accel)) != ESP_OK){printf("Error saving accel_invert\n");}
+    printf("Saved config\n");
 }
 
 void loadPidConfig()
 {
-    nvs_load_struct("pid_roll", &pidRoll, sizeof(pidRoll));
-    nvs_load_struct("pid_pitch", &pidPitch, sizeof(pidPitch));
-    nvs_load_struct("pid_yaw", &pidYaw, sizeof(pidYaw));
-    nvs_load_struct("master_gain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel));
-    nvs_load_struct("flightmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel));
-    nvs_load_struct("accel_invert", &g_invert_accel, sizeof(g_invert_accel));
+    if(nvs_load_struct("pid_roll", &pidRoll, sizeof(pidRoll)) != ESP_OK){printf("Error loading pid_roll\n");}
+    if(nvs_load_struct("pid_pitch", &pidPitch, sizeof(pidPitch)) != ESP_OK){printf("Error loading pid_pitch\n");}
+    if(nvs_load_struct("pid_yaw", &pidYaw, sizeof(pidYaw)) != ESP_OK){printf("Error loading pid_yaw\n");}
+    if(nvs_load_struct("mgain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel)) != ESP_OK){printf("Error loading master_gain_channel\n");}
+    if(nvs_load_struct("fmode_channel", &g_flightmode_channel, sizeof(g_flightmode_channel)) != ESP_OK){printf("Error loading flightmode_channel\n");}
+    if(nvs_load_struct("accel_invert", &g_invert_accel, sizeof(g_invert_accel)) != ESP_OK){printf("Error loading accel_invert\n");}
 }
 
 void savePWMConfig()
@@ -175,6 +181,12 @@ void init_pid_factory()
     g_invert_accel[0] = false;
     g_invert_accel[1] = false;
     g_invert_accel[2] = false;
+}
+
+void erase_nvs(void)
+{
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ESP_ERROR_CHECK(nvs_flash_init());
 }
 
 void init_pwm_factory()
@@ -308,6 +320,21 @@ static inline float compute_shortest_angle_error(float targetAngleDeg, float cur
     return constrain_angle_deg(error);
 }
 
+void init_flight_watchdog(void)
+{
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = 5000,                  // Timeout de 2 secondes
+        .idle_core_mask = (1 << 0),          // Surveille aussi la tâche Idle du Coeur 0
+        .trigger_panic = true                // Forcer la panique/reset en cas de timeout
+    };
+
+    // Initialisation ou re-configuration du TWDT
+    esp_task_wdt_reconfigure(&twdt_config);
+
+    // Ajouter la tâche courante (ex: la boucle de contrôle) au Watchdog
+    esp_task_wdt_add(NULL); 
+}
+
 // ==========================================
 // Servo managemenent task
 // ==========================================
@@ -396,6 +423,24 @@ void servo_update_task(void *pvParameters) {
         }
 
         if (gyro_data.valid){
+            if (g_invert_accel[0]){
+                 gyro_data.ax = -gyro_data.ax;
+                 gyro_data.raw_ax = -gyro_data.raw_ax;
+                 gyro_data.rot_x = -gyro_data.rot_x;
+                 gyro_data.rot_x_low = -gyro_data.rot_x_low;
+            }
+            if (g_invert_accel[1]){
+                gyro_data.ay = -gyro_data.ay;   
+                gyro_data.raw_ay = -gyro_data.raw_ay;
+                gyro_data.rot_y = -gyro_data.rot_y;
+                gyro_data.rot_y_low = -gyro_data.rot_y_low;
+            }
+            if (g_invert_accel[2]){
+                gyro_data.az = -gyro_data.az;
+                gyro_data.raw_az = -gyro_data.raw_az;
+                gyro_data.rot_z = -gyro_data.rot_z;
+                gyro_data.rot_z_low = -gyro_data.rot_z_low;
+            }
             // This function must always update to keep the attitude estimation correct, even if RX data is not valid
             compute_attitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
             //mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
@@ -406,12 +451,15 @@ void servo_update_task(void *pvParameters) {
             if (g_flightmode == FLIGHTMODE_LEVEL){
                 // 70 us execution time
                 //mahony_get_euler(&attitude);
+                
                 float stickInputRoll = nomalise_stick(rx_data.us_values[CHANNEL_AILERON]);
+                if(pidRoll.invert) stickInputRoll = -stickInputRoll;
                 float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
                 float targetRateRoll = 4.f * (targetAngleRoll - attitude.rollDeg);
                 //targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
                 
                 float stickInputPitch = nomalise_stick(rx_data.us_values[CHANNEL_ELEVATOR]);
+                if (pidPitch.invert) stickInputPitch = -stickInputPitch;
                 float targetAnglePitch = -stickInputPitch * 35.0f; // -35° à +35°
                 float targetRatePitch = 3.5f * (targetAnglePitch - attitude.pitchDeg);
                 //targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
@@ -487,15 +535,30 @@ void servo_update_task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
+
 void app_main(void) {
     // Check EEPROM initialization
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        printf("Erasing NVS\n");
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
 
+    // Temp config
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE, // Fixe l'état haut par défaut
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE     // Désactive toute interruption si inutile
+    };
+    gpio_config(&io_conf);
+
+    
     init_pid_factory();
     init_pwm_factory();
 
@@ -506,6 +569,8 @@ void app_main(void) {
     xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
     xTaskCreate(servo_update_task, "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
+    
+    //init_flight_watchdog();
 
     #ifdef DEBUG_STACK
     while (1) {
@@ -533,7 +598,7 @@ void app_main(void) {
             printf("Remaining stack for Gyro Button Task: %u words\n", (unsigned int)remaining_stack);
         }
         
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
     #endif
 }

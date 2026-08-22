@@ -39,6 +39,7 @@ extern bool g_invert_accel[3];
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
 extern void savePidConfig(void);
+extern void erase_nvs(void);
 extern void savePWMConfig(void);
 extern void reset_crash(void);
 
@@ -156,6 +157,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
 esp_err_t config_factorypid_handler(httpd_req_t *req) {
     init_pid_factory();
+    erase_nvs();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -447,7 +449,7 @@ void start_webserver(void)
         };
         
         static const httpd_uri_t uri_config_post = {
-            .uri       = "/api/config",
+            .uri       = "/api/configpost",
             .method    = HTTP_POST,
             .handler   = config_post_handler, // Votre fonction
             .user_ctx  = NULL

@@ -494,7 +494,7 @@
             invertaz: document.getElementById('invertaz').checked
         };
 
-        fetch('/api/config', {
+        fetch('/api/configpost', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
