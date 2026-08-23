@@ -22,10 +22,13 @@
 
 #include "pid.h"
 
+
+//#define DEBUG_STACK 1
+//#define DEBUG_GYRO 1
+//#define LEVEL_MODE_MAHONY 1
+
 #define ONBOARD_LED_PIN     8
 #define PAIRING_BUTTON_PIN  9
-
-#define NVS_NAMESPACE "storage"
 
 enum {
     FLIGHTMODE_FREE = 0,
@@ -41,15 +44,7 @@ enum {
     CHANNEL_ARM
 } channels_t;
 
-//#define DEBUG_STACK 1
-//#define DEBUG_GYRO 1
-
 const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
-
-const uint32_t test_sequence_us_1[NUM_PWM_OUPUTS] = {990, 1000, 2000, 1000, 1000, 1000};
-const uint32_t test_sequence_us_2[NUM_PWM_OUPUTS] = {1500, 1500, 2000, 1500, 1000, 1500};
-const uint32_t test_sequence_us_3[NUM_PWM_OUPUTS] = {2000, 2000, 2000, 2000, 1000, 2000};
-
 uint8_t g_crash_reasons[4] = {0, 0, 0, 0};
 
 PID_Config_t pidRoll;
@@ -92,51 +87,7 @@ static void init_pid(PID_Config_t* pid, float Kp, float Ki, float Kd, float maxR
     pid->prevMeasuredRate = 0.0f;
 }
 
-
-esp_err_t nvs_save_struct(const char *key, const void *data, size_t size) {
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-    if (err != ESP_OK){
-        printf("Error opening NVS namespace for save '%s'\n", NVS_NAMESPACE);
-    } 
-
-    // Écriture du bloc mémoire brut (BLOB)
-    err = nvs_set_blob(handle, key, data, size);
-    if (err == ESP_OK) {
-        err = nvs_commit(handle); // Validation de l'écriture en Flash
-    } else {
-        ESP_LOGE("NVS", "Failed to write key %s", key);
-    }
-
-    nvs_close(handle);
-    return err;
-}
-
-// --- CHARGER UNE STRUCTURE DEPUIS LA NVS ---
-esp_err_t nvs_load_struct(const char *key, void *data, size_t size) {
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
-    if (err != ESP_OK){
-        printf("Error opening NVS namespace for load '%s'\n", NVS_NAMESPACE);
-    } 
-
-    size_t required_size = size;
-    err = nvs_get_blob(handle, key, data, &required_size);
-    nvs_close(handle);
-
-    // Vérifie que la clé existe ET que la taille enregistrée correspond à la structure actuelle
-    if (err == ESP_OK && required_size != size) {
-        ESP_LOGE("NVS", "Failed to load key (length mismatch) %s", key);
-        return ESP_ERR_NVS_INVALID_LENGTH;
-    } else if (err != ESP_OK) {
-        ESP_LOGE("NVS", "Failed to load key %s", key);
-        return err;
-    }
-
-    return err;
-}
-
-void savePidConfig()
+void save_pid_config()
 {
     if(nvs_save_struct("pid_roll", &pidRoll, sizeof(pidRoll)) != ESP_OK){printf("Error saving pid_roll\n");}
     if(nvs_save_struct("pid_pitch", &pidPitch, sizeof(pidPitch)) != ESP_OK){printf("Error saving pid_pitch\n");}
@@ -157,7 +108,7 @@ void loadPidConfig()
     if(nvs_load_struct("accel_invert", &g_invert_accel, sizeof(g_invert_accel)) != ESP_OK){printf("Error loading accel_invert\n");}
 }
 
-void savePWMConfig()
+void save_pwm_config()
 {
     nvs_save_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
     nvs_save_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
@@ -245,11 +196,8 @@ void actions_task(void *pvParameters) {
     nvs_load_struct("crash", &g_crash_reasons, sizeof(g_crash_reasons));
 
     uint8_t reboot_reason = (uint8_t)esp_reset_reason();
-    if (reboot_reason == ESP_RST_BROWNOUT) {
-        blink_led(reboot_reason, 200, false);
-    }
 
-    if (reboot_reason > ESP_RST_POWERON) {
+    if (reboot_reason > (uint8_t)ESP_RST_POWERON) {
         g_crash_reasons[3] = g_crash_reasons[2];
         g_crash_reasons[2] = g_crash_reasons[1];
         g_crash_reasons[1] = g_crash_reasons[0];
@@ -365,14 +313,6 @@ void servo_update_task(void *pvParameters) {
         ledc_channel_config(&ledc_channel);
     }
 
-    // vTaskDelay(pdMS_TO_TICKS(500));
-    // test_sequence(test_sequence_us_1);
-    // vTaskDelay(pdMS_TO_TICKS(500));
-    // test_sequence(test_sequence_us_2);
-    // vTaskDelay(pdMS_TO_TICKS(500));
-    // test_sequence(test_sequence_us_3);
-    // vTaskDelay(pdMS_TO_TICKS(500));
-
     static int64_t last_time = 0;
     int64_t servo_timer = esp_timer_get_time();
 #ifdef DEBUG_GYRO
@@ -442,16 +382,20 @@ void servo_update_task(void *pvParameters) {
                 gyro_data.rot_z_low = -gyro_data.rot_z_low;
             }
             // This function must always update to keep the attitude estimation correct, even if RX data is not valid
+            #ifdef LEVEL_MODE_MAHONY
+            mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
+            #else
             compute_attitude(&attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
-            //mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
+            #endif
         }
 
         if (gyro_data.valid && rx_data.valid) {
             
             if (g_flightmode == FLIGHTMODE_LEVEL){
+#ifdef LEVEL_MODE_MAHONY
                 // 70 us execution time
-                //mahony_get_euler(&attitude);
-                
+                mahony_get_euler(&attitude);
+#endif
                 float stickInputRoll = nomalise_stick(rx_data.us_values[CHANNEL_AILERON]);
                 if(pidRoll.invert) stickInputRoll = -stickInputRoll;
                 float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
@@ -477,8 +421,10 @@ void servo_update_task(void *pvParameters) {
             }
 
         } else if (gyro_data.valid && !rx_data.valid) {
-            // 33us execution time
+            #ifdef LEVEL_MODE_MAHONY
+            // 33us execution timex
             mahony_get_euler(&attitude);
+#endif
 
             // Failsafe mode: no RX data, but gyro is valid. Try to keep plane flat and turning
             float targetAngleRoll = 20.f; // -45° à +45°
@@ -548,7 +494,7 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // Temp config
+    // GPIO pin 4 temp config, seems to avoid crashes
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << GPIO_NUM_4),
         .mode = GPIO_MODE_INPUT,
@@ -570,8 +516,6 @@ void app_main(void) {
     xTaskCreate(servo_update_task, "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
     
-    //init_flight_watchdog();
-
     #ifdef DEBUG_STACK
     while (1) {
         if (servo_task_handle != NULL) {

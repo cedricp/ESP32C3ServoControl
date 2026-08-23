@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "pid.h"
+#include "utils.h"
 
 
 #define MPU_ADDR        0x68
@@ -42,6 +43,7 @@ static i2c_master_dev_handle_t mpu_handle;
 static TaskHandle_t xGyroTaskHandle = NULL;
 portMUX_TYPE g_gyro_spinlock = portMUX_INITIALIZER_UNLOCKED;
 gyro_data_t g_gyro_data;
+int16_t g_gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 
 typedef struct {
     float rot_x, rot_y, rot_z;  // deg/s
@@ -90,6 +92,10 @@ static esp_err_t mpu_write_reg(uint8_t reg, uint8_t val) {
 }
 
 static void mpu_configure(void) {
+    mpu_write_reg(REG_PWR_MGMT_1, 0x00);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    mpu_write_reg(REG_PWR_MGMT_1, 0x80);      // Reset MPU
+    vTaskDelay(pdMS_TO_TICKS(100));
     mpu_write_reg(REG_PWR_MGMT_1, 0x01);      // sort du sleep, clock source = gyro X (plus stable que interne)
     vTaskDelay(pdMS_TO_TICKS(50));
 
@@ -153,7 +159,6 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
 
     return ESP_OK;
 }
-
 
 void get_gyro_data(gyro_data_t *data) {
     portENTER_CRITICAL(&g_gyro_spinlock);
@@ -220,16 +225,18 @@ static void init_mpu_interrupt(void) {
     gpio_isr_handler_add(I2C_INT_PIN, mpu_drdy_isr_handler, NULL);
 }
 
+void gyro_calib(void) {
+    mpu_calibrate_gyro(g_gyro_offsets);
+    nvs_save_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets));
+}
+
 void gyro_control_task(void *pvParameters) {
     xGyroTaskHandle = xTaskGetCurrentTaskHandle();
-
     
-    // FIX 2 : Enregistrer le handle de la tâche en cours pour l'ISR
     float cleanRollRate  = 0.0f, cleanPitchRate = 0.0f, cleanYawRate = 0.0f;
     float cleanRollRate_low  = 0.0f, cleanPitchRate_low = 0.0f, cleanYawRate_low = 0.0f;
     float rawAx = 0.0f, rawAy = 0.0f, rawAz = 0.0f;
     float cleanAx = 0.0f, cleanAy = 0.0f, cleanAz = 0.0f;
-    int16_t gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 
     gyro_t gyro_data;
     gyro_data.ax = 0.0f;
@@ -245,14 +252,20 @@ void gyro_control_task(void *pvParameters) {
     initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, dt); 
     initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, dt);
     initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, dt);
-    
+
+    if(nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK){
+        printf("Error loading gyro_offsets\n");
+    }
+
+    // Check I2C bus and recover if needed
+    check_i2c(I2C_SDA_PIN, I2C_SCL_PIN);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
     mpu_init();
     mpu_configure();
     init_mpu_interrupt();
     
     vTaskDelay(pdMS_TO_TICKS(500));
-
-    mpu_calibrate_gyro(gyro_offsets);
 
     // uint64_t timer = esp_timer_get_time();
     // uint32_t counter = 0;
@@ -268,7 +281,7 @@ void gyro_control_task(void *pvParameters) {
         if (ulNotificationValue > 0) {
             // DRDY Interrup ! Direct read and process the data
             bool valid = false;
-            if (mpu_read_gyro(&gyro_data, gyro_offsets) == ESP_OK) {
+            if (mpu_read_gyro(&gyro_data, g_gyro_offsets) == ESP_OK) {
                 gyro_data.rot_x *= GYRO_SCALE;
                 gyro_data.rot_y *= GYRO_SCALE;
                 gyro_data.rot_z *= GYRO_SCALE;

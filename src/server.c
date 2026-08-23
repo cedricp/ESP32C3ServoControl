@@ -33,14 +33,15 @@ extern int g_ouput_mapping[NUM_PWM_OUPUTS];
 extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 extern bool g_invert_channel[NUM_PWM_OUPUTS];
 extern uint8_t g_crash_reasons[4];
+extern void gyro_calib(void);
 
 extern bool g_invert_accel[3];
 
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
-extern void savePidConfig(void);
+extern void save_pid_config(void);
 extern void erase_nvs(void);
-extern void savePWMConfig(void);
+extern void save_pwm_config(void);
 extern void reset_crash(void);
 
 static void dhcp_set_captiveportal_url(void) {
@@ -146,7 +147,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
     cJSON_Delete(json);
 
-    savePidConfig();
+    save_pid_config();
 
     // Optionnel : Sauvegarder dans la NVS Flash ici
     // save_config_to_nvs();
@@ -158,6 +159,8 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 esp_err_t config_factorypid_handler(httpd_req_t *req) {
     init_pid_factory();
     erase_nvs();
+    save_pid_config();
+    save_pwm_config();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -170,6 +173,12 @@ esp_err_t config_resetcrash_handler(httpd_req_t *req) {
 
 esp_err_t config_factorypwm_handler(httpd_req_t *req) {
     init_pwm_factory();
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+esp_err_t config_gyro_calib_handler(httpd_req_t *req) {
+    gyro_calib();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -236,7 +245,7 @@ esp_err_t config_postpwm_handler(httpd_req_t *req) {
 
     cJSON_Delete(json);
 
-    savePWMConfig();
+    save_pwm_config();
 
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
@@ -367,6 +376,30 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
     return ESP_OK;
 }
 
+static esp_err_t rtinfo_handler(httpd_req_t *req) {
+    // 1. Créer l'objet JSON avec cJSON
+    gyro_data_t gyro_data;
+    get_gyro_data(&gyro_data);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "gx", gyro_data.rot_x_low);
+    cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
+    cJSON_AddNumberToObject(root, "gz", gyro_data.rot_y_low);
+
+    // 2. Convertir en chaîne de caractères
+    const char *json_response = cJSON_PrintUnformatted(root);
+
+    // 3. Envoyer la réponse HTTP
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_response);
+
+    // 4. Nettoyer la mémoire (important sur ESP32)
+    cJSON_Delete(root);
+    free((void *)json_response);
+ 
+    return ESP_OK;
+}
+
 static void wifi_init_softap(void)
 {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -429,7 +462,7 @@ void start_webserver(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 13;
-    config.max_uri_handlers = 15;
+    config.max_uri_handlers = 20;
     config.lru_purge_enable = true;
 
     if (httpd_start(&g_server_handle, &config) == ESP_OK) {
@@ -490,6 +523,13 @@ void start_webserver(void)
             .user_ctx  = NULL
         };
 
+        static const httpd_uri_t uri_gyro_calib_post = {
+            .uri       = "/api/calibgyro",
+            .method    = HTTP_POST,
+            .handler   = config_gyro_calib_handler, // Votre fonction
+            .user_ctx  = NULL
+        };
+
         httpd_uri_t gen204b = {
             .uri = "/gen_204",
             .method = HTTP_GET,
@@ -510,6 +550,13 @@ void start_webserver(void)
             .handler = generate_204_handler,
             .user_ctx = NULL
         };
+
+        httpd_uri_t uri_rthandler = {
+            .uri       = "/api/rtinfo",
+            .method    = HTTP_GET,
+            .handler   = rtinfo_handler,
+            .user_ctx  = NULL
+        };
         
         httpd_register_err_handler(g_server_handle, HTTPD_404_NOT_FOUND, http_404_error_handler);
         httpd_register_uri_handler(g_server_handle, &root);
@@ -520,9 +567,11 @@ void start_webserver(void)
         httpd_register_uri_handler(g_server_handle, &uri_factorypid_post);
         httpd_register_uri_handler(g_server_handle, &uri_factorypwm_post);
         httpd_register_uri_handler(g_server_handle, &uri_resetcrash_post);
+        httpd_register_uri_handler(g_server_handle, &uri_gyro_calib_post);
         httpd_register_uri_handler(g_server_handle, &gen204b);
         httpd_register_uri_handler(g_server_handle, &generate204b);
         httpd_register_uri_handler(g_server_handle, &redirect);
+        httpd_register_uri_handler(g_server_handle, &uri_rthandler);
     }
 
     dns_server_config_t dns_config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);

@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <math.h>
+#include "esp_err.h"
 
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
@@ -10,6 +11,10 @@
 #define NUM_CRSF_CHANNELS   8
 
 const char* reset_reason_to_str(uint8_t reason);
+void check_i2c(int gpio_sda, int gpio_scl);
+
+esp_err_t nvs_save_struct(const char *key, const void *data, size_t size);
+esp_err_t nvs_load_struct(const char *key, void *data, size_t size);
 
 typedef struct {
     uint16_t us_values[NUM_CRSF_CHANNELS];
