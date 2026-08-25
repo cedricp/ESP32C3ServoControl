@@ -26,6 +26,7 @@ static esp_netif_t *esp_netif_handle = NULL;
 extern PID_Config_t* get_pid_roll(void);
 extern PID_Config_t* get_pid_pitch(void);
 extern PID_Config_t* get_pid_yaw(void);
+extern attitude_t g_attitude;
 extern int g_master_gain_channel;
 extern int g_flightmode;
 extern int g_flightmode_channel;
@@ -43,6 +44,8 @@ extern void save_pid_config(void);
 extern void erase_nvs(void);
 extern void save_pwm_config(void);
 extern void reset_crash(void);
+extern void calibrate_roll(void);
+extern void calibrate_pitch(void);
 
 static void dhcp_set_captiveportal_url(void) {
     // get the IP of the access point to redirect to
@@ -158,9 +161,7 @@ esp_err_t config_post_handler(httpd_req_t *req) {
 
 esp_err_t config_factorypid_handler(httpd_req_t *req) {
     init_pid_factory();
-    erase_nvs();
     save_pid_config();
-    save_pwm_config();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -173,6 +174,7 @@ esp_err_t config_resetcrash_handler(httpd_req_t *req) {
 
 esp_err_t config_factorypwm_handler(httpd_req_t *req) {
     init_pwm_factory();
+    save_pwm_config();
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -182,6 +184,19 @@ esp_err_t config_gyro_calib_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
+
+esp_err_t config_calibroll_handler(httpd_req_t *req) {
+    calibrate_roll();
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+esp_err_t config_calibpitch_handler(httpd_req_t *req) {
+    calibrate_pitch();
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+    
 
 esp_err_t config_postpwm_handler(httpd_req_t *req) {
     char buf[512];
@@ -384,16 +399,16 @@ static esp_err_t rtinfo_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "gx", gyro_data.rot_x_low);
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
-    cJSON_AddNumberToObject(root, "gz", gyro_data.rot_y_low);
+    cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    // 2. Convertir en chaîne de caractères
+    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg);
+    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg);
+
     const char *json_response = cJSON_PrintUnformatted(root);
 
-    // 3. Envoyer la réponse HTTP
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_response);
 
-    // 4. Nettoyer la mémoire (important sur ESP32)
     cJSON_Delete(root);
     free((void *)json_response);
  
@@ -557,6 +572,21 @@ void start_webserver(void)
             .handler   = rtinfo_handler,
             .user_ctx  = NULL
         };
+
+        httpd_uri_t uri_calibroll_handler = {
+            .uri       = "/api/calibroll",
+            .method    = HTTP_GET,
+            .handler   = config_calibroll_handler,
+            .user_ctx  = NULL
+        };
+
+
+        httpd_uri_t uri_calibpitch_handler = {
+            .uri       = "/api/calibpitch",
+            .method    = HTTP_GET,
+            .handler   = config_calibpitch_handler,
+            .user_ctx  = NULL
+        };
         
         httpd_register_err_handler(g_server_handle, HTTPD_404_NOT_FOUND, http_404_error_handler);
         httpd_register_uri_handler(g_server_handle, &root);
@@ -572,6 +602,8 @@ void start_webserver(void)
         httpd_register_uri_handler(g_server_handle, &generate204b);
         httpd_register_uri_handler(g_server_handle, &redirect);
         httpd_register_uri_handler(g_server_handle, &uri_rthandler);
+        httpd_register_uri_handler(g_server_handle, &uri_calibroll_handler);
+        httpd_register_uri_handler(g_server_handle, &uri_calibpitch_handler);
     }
 
     dns_server_config_t dns_config = DNS_SERVER_CONFIG_SINGLE("*" /* all A queries */, "WIFI_AP_DEF" /* softAP netif ID */);

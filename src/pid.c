@@ -9,7 +9,7 @@
 #define MAX_I_TERM       0.2f
 #define MAX_SERVO_OUTPUT 1.0f
 
-#define MAHONY_KP 10.0f 
+#define MAHONY_KP 0.5f 
 #define MAHONY_KI 0.0f
 
 float nomalise_stick(uint16_t pulse_us)
@@ -66,18 +66,17 @@ IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measu
     float gyroCorrection = (pTerm + iTerm + dTerm) * masterGain * stickFactor;
 
     // Invert correction if needed
-    //if (pid->invert) gyroCorrection = -gyroCorrection;
+    if (pid->invert) gyroCorrection = -gyroCorrection;
     float output = stickInput + gyroCorrection;
 
     // h. Clamp output to [-1.0, 1.0] range
-    if (output > MAX_SERVO_OUTPUT)  output = MAX_SERVO_OUTPUT;
-    if (output < -MAX_SERVO_OUTPUT) output = -MAX_SERVO_OUTPUT;
+    clampf(output, -MAX_SERVO_OUTPUT, MAX_SERVO_OUTPUT);
 
     return output;
 }
 
 /**
- * @brief Convertit un signal de manche RC en vitesse de rotation cible (deg/s).
+ * @brief Convert a PWM pulse width in microseconds to a target rotation rate in degrees per second, considering deadband and maximum rate.
  * 
  * @param pulse_us     PWM pulse width in microseconds (e.g., 1000 to 2000)
  * @param max_rate_dps Rotation rate limit in degrees per second (e.g., 250.0)
@@ -112,6 +111,13 @@ IRAM_ATTR float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t d
 
 #define ALPHA  0.98f // 98% Gyro, 2% Accel
 
+/*
+ * @brief Compute the attitude using a complementary filter combining gyro and accelerometer data.
+ * @param attitude Pointer to the attitude structure to update.
+ * @param ax, ay, az Accelerometer readings in g.
+ * @param gyroRollDegS, gyroPitchDegS Gyro readings in deg/s.
+ * @param dt Time step in seconds.
+ */
 IRAM_ATTR void compute_attitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt) {
     if (dt <= 0.00001f) return;
     
@@ -130,6 +136,12 @@ typedef struct {
 
 static MahonyFilter mahony = { .q0 = 1.0f, .q1 = 0.0f, .q2 = 0.0f, .q3 = 0.0f, .ix = 0.0f, .iy = 0.0f, .iz = 0.0f };
 
+/*
+ * @brief  Compute the attitude using a Mahony filter with new sensor readings.
+ * @param gx, gy, gz Gyro readings in rad/s.
+ * @param ax, ay, az Accelerometer readings in g.
+ * @param dt Time step in seconds.
+ */
 IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, float az, float dt) {
     float q0 = mahony.q0, q1 = mahony.q1, q2 = mahony.q2, q3 = mahony.q3;
     float norm;

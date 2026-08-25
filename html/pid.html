@@ -176,6 +176,13 @@
             height: 20px;
         }
 
+        #attitude_status {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            height: 20px;
+        }
+
         #fmstatus {
             text-align: center;
             margin-top: 15px;
@@ -233,13 +240,28 @@
     <nav class="navbar">
         <a href="/" class="active">PID Settings</a>
         <a href="/output">Outputs</a>
-        <a href="/wifi">Wi-Fi & NVS</a>
     </nav>
 
     <header>
         <h1>PID & Rates Settings</h1>
         <p class="subtitle">ESP32-C3 Flight Controller</p>
     </header>
+
+    <div class="actions">
+        <button type="button" id="calibBtn" onclick="calibGyro()">Gyro calibration</button>
+    </div>
+
+    <div id="calib_status"></div>
+
+    <div class="actions">
+        <button type="button" id="calibPitchBtn" onclick="calibPitch()">Pitch calibration</button>
+    </div>
+
+    <div class="actions">
+        <button type="button" id="calibRollBtn" onclick="calibRoll()">Roll calibration</button>
+    </div>
+
+    <div id="attitude_status"></div>
 
     <form id="gainsChannel">   
         <div class="card">
@@ -386,19 +408,13 @@
         <div id="status"></div>
 
         <div class="actions">
-            <button type="button" id="calibBtn" onclick="calibGyro()">Gyro calibration</button>
-        </div>
-
-        <div id="calib_status"></div>
-        
-        <div class="actions">
             <button type="button" id="resetCrashBtn" onclick="resetCrash()">Reset stored CPU crashes</button>
         </div>
 
         <div id="crash_status"></div>
 
         <div class="actions">
-            <button type="button" id="factoryBtn" onclick="initFactory()">Reset NVRAM</button>
+            <button type="button" id="factoryBtn" onclick="initFactory()">Reset factory defaults</button>
         </div>
 
     </form>
@@ -428,6 +444,7 @@
     
     function refreshElements() {
         const status = document.getElementById('calib_status');
+        const att_status = document.getElementById('attitude_status');
         fetch('/api/rtinfo')
         .then(response => {
             if (!response.ok) throw new Error('Network error');
@@ -435,6 +452,7 @@
             })
             .then(data => {
             status.textContent = `Roll: ${data.gx.toFixed(1)}° | Pitch: ${data.gy.toFixed(1)}° | Yaw: ${data.gz.toFixed(1)}°`;
+            att_status.textContent = `Attitude Roll: ${data.att_roll.toFixed(1)}° | Pitch: ${data.att_pitch.toFixed(1)}°`;
             })
             .catch(err => console.error("Telemetry error :", err));
     }
@@ -565,6 +583,72 @@
         .catch(err => {
             status.className = 'error';
             status.textContent = "Failed to calibrate gyro.";
+        })
+        .finally(() => {
+            btn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 4000);
+            modal.style.display = 'none';
+        });
+    }
+
+    function calibPitch(){
+                const modal = document.getElementById('calib-modal');
+        const btn = document.getElementById('calibPitchBtn');
+        const status = document.getElementById('attitude_status');
+        btn.disabled = true;
+        status.className = '';
+        status.textContent = "Sending Pitch calibration to ESP32...";
+
+        modal.style.display = 'flex';
+
+        fetch('/api/calibpitch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (res.ok) {
+                status.className = 'success';
+                status.textContent = "Pitch calibration done!";
+            } else {
+                throw new Error("Erreur serveur");
+            }
+        })
+        .catch(err => {
+            status.className = 'error';
+            status.textContent = "Failed to calibrate Pitch.";
+        })
+        .finally(() => {
+            btn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 4000);
+            modal.style.display = 'none';
+        });
+    }
+
+    function calibRoll(){
+        const modal = document.getElementById('calib-modal');
+        const btn = document.getElementById('calibRollBtn');
+        const status = document.getElementById('attitude_status');
+        btn.disabled = true;
+        status.className = '';
+        status.textContent = "Sending Roll calibration to ESP32...";
+
+        modal.style.display = 'flex';
+
+        fetch('/api/calibroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (res.ok) {
+                status.className = 'success';
+                status.textContent = "Roll calibration done!";
+            } else {
+                throw new Error("Erreur serveur");
+            }
+        })
+        .catch(err => {
+            status.className = 'error';
+            status.textContent = "Failed to calibrate Roll.";
         })
         .finally(() => {
             btn.disabled = false;

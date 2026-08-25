@@ -5,6 +5,7 @@
 #include "filter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "driver/i2c_master.h"
@@ -36,26 +37,28 @@
 
 #define GYRO_CUTOFF_FREQ        45.0f
 #define GYRO_LOW_CUTOFF_FREQ    15.0f
+#define ACCEL_CUTOFF_FREQ       5.0f
+#define GYRO_DT                 0.001f // 1ms
 
-static i2c_master_bus_handle_t bus_handle;
-static i2c_master_dev_handle_t mpu_handle;
-
+static i2c_master_bus_handle_t i2c_mpu_bus_handle = NULL;
+static i2c_master_dev_handle_t i2c_mpu_dev_handle = NULL;
 static TaskHandle_t xGyroTaskHandle = NULL;
-portMUX_TYPE g_gyro_spinlock = portMUX_INITIALIZER_UNLOCKED;
-gyro_data_t g_gyro_data;
-int16_t g_gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 
+portMUX_TYPE g_gyro_spinlock = portMUX_INITIALIZER_UNLOCKED;
 typedef struct {
     float rot_x, rot_y, rot_z;  // deg/s
     float ax, ay, az; // m/s^2
     char valid;
 } gyro_t;
 
+gyro_data_t g_gyro_data;
+int16_t g_gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 
 static const float GYRO_SCALE = 1.0f / 65.5f;  // LSB/(deg/s) pour ±500dps, cf datasheet
 static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
 extern bool g_invert_accel[3];
+extern QueueHandle_t gyro_queue;
 
 // cutoff could be tuned for latency issue (less is induce more lag)
 FilterPT1 filterGyroRoll;
@@ -68,26 +71,26 @@ FilterPT1 filterGyroYaw_low;
 
 static void mpu_init(void) {
     i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = I2C_NUM_0,
-        .sda_io_num = I2C_SDA_PIN,
-        .scl_io_num = I2C_SCL_PIN,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port       = I2C_NUM_0,
+        .sda_io_num     = I2C_SDA_PIN,
+        .scl_io_num     = I2C_SCL_PIN,
+        .clk_source     = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,  // pull-ups externes recommandés en vrai montage, mais dépannage OK
+        .flags.enable_internal_pullup = true,
     };
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus_handle));
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &i2c_mpu_bus_handle));
 
     i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = MPU_ADDR,
-        .scl_speed_hz = I2C_FREQ_HZ,
+        .dev_addr_length    = I2C_ADDR_BIT_LEN_7,
+        .device_address     = MPU_ADDR,
+        .scl_speed_hz       = I2C_FREQ_HZ,
     };
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &mpu_handle));
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_mpu_bus_handle, &dev_cfg, &i2c_mpu_dev_handle));
 }
 
-static esp_err_t mpu_write_reg(uint8_t reg, uint8_t val) {
+static inline esp_err_t mpu_write_reg(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
-    esp_err_t err = i2c_master_transmit(mpu_handle, buf, 2, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    esp_err_t err = i2c_master_transmit(i2c_mpu_dev_handle, buf, 2, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
     return err;
 }
 
@@ -108,9 +111,10 @@ static void mpu_configure(void) {
     mpu_write_reg(REG_ACCEL_CONFIG_2, 0x03);  // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
 }
 
-#define ACCEL_LPF_ALPHA  0.0591f
+#define ALPHA               (2.0f * M_PI * ACCEL_CUTOFF_FREQ * GYRO_DT)
+#define ACCEL_LPF_ALPHA     (ALPHA / (ALPHA + 1.0f))
 
-IRAM_ATTR static void filter_accelerometer(float ax_raw, float ay_raw, float az_raw, 
+static inline void filter_accelerometer(float ax_raw, float ay_raw, float az_raw, 
                                  float *ax_f, float *ay_f, float *az_f) {
     static float ax_prev = 0.0f;
     static float ay_prev = 0.0f;
@@ -131,7 +135,7 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets) {
 
     // Transaction I2C unique : Écriture de l'adresse du registre puis lecture en rafale (burst)
     esp_err_t ret = i2c_master_transmit_receive(
-        mpu_handle, &reg, 1, buffer, sizeof(buffer), pdMS_TO_TICKS(I2C_TIMEOUT_MS)
+        i2c_mpu_dev_handle, &reg, 1, buffer, sizeof(buffer), pdMS_TO_TICKS(I2C_TIMEOUT_MS)
     );
     if (ret != ESP_OK) return ret;
 
@@ -167,7 +171,7 @@ void get_gyro_data(gyro_data_t *data) {
 }
 
 static void mpu_calibrate_gyro(int16_t *gyro_offsets) {
-    int32_t sum_x = 0, sum_y = 0, sum_z = 0, sum_ax = 0, sum_ay = 0, sum_az = 0;
+    int32_t sum_x = 0, sum_y = 0, sum_z = 0;
     int valid_samples = 0;
     gyro_t gyro_data;
 
@@ -178,10 +182,6 @@ static void mpu_calibrate_gyro(int16_t *gyro_offsets) {
             sum_x += (int32_t)gyro_data.rot_x;
             sum_y += (int32_t)gyro_data.rot_y;
             sum_z += (int32_t)gyro_data.rot_z;
-
-            sum_ax += (int32_t)gyro_data.ax;
-            sum_ay += (int32_t)gyro_data.ay;
-            sum_az += (int32_t)gyro_data.az;
             valid_samples++;
         }
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -211,11 +211,11 @@ static void IRAM_ATTR mpu_drdy_isr_handler(void* arg) {
 
 static void init_mpu_interrupt(void) {
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << I2C_INT_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE, // Le MPU6500 émet une impulsion HAUTE par défaut
-        .intr_type = GPIO_INTR_POSEDGE,       // Front montant
+        .pin_bit_mask   = (1ULL << I2C_INT_PIN),
+        .mode           = GPIO_MODE_INPUT,
+        .pull_up_en     = GPIO_PULLUP_DISABLE,
+        .pull_down_en   = GPIO_PULLDOWN_ENABLE, // Le MPU6500 émet une impulsion HAUTE par défaut
+        .intr_type      = GPIO_INTR_POSEDGE,       // Front montant
     };
     gpio_config(&io_conf);
 
@@ -243,15 +243,13 @@ void gyro_control_task(void *pvParameters) {
     gyro_data.ay = 0.0f;
     gyro_data.az = 0.0f;
     
-    const float dt = 1.0f / 1000.0f;
-    
-    initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, dt); 
-    initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, dt);
-    initPT1Filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, dt);
+    initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, GYRO_DT); 
+    initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
 
-    initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, dt); 
-    initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, dt);
-    initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, dt);
+    initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT); 
+    initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
 
     if(nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK){
         printf("Error loading gyro_offsets\n");
@@ -266,9 +264,9 @@ void gyro_control_task(void *pvParameters) {
     init_mpu_interrupt();
     
     vTaskDelay(pdMS_TO_TICKS(500));
+    uint32_t drop_count = 0;
 
-    // uint64_t timer = esp_timer_get_time();
-    // uint32_t counter = 0;
+    uint64_t timer = esp_timer_get_time();
     while (1) {
         // Blocking wait for notification from ISR
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
@@ -328,11 +326,21 @@ void gyro_control_task(void *pvParameters) {
             g_gyro_data.valid = valid;
             portEXIT_CRITICAL(&g_gyro_spinlock);
 
+            if(xQueueSend(gyro_queue, &g_gyro_data, 0) != pdPASS){
+                drop_count++;
+            } // Send the updated gyro data to the servo queue
+
         } else {
             // Timeout : No interruption received, possibly a missed DRDY. Mark data as invalid.
             portENTER_CRITICAL(&g_gyro_spinlock);
             g_gyro_data.valid = false;
             portEXIT_CRITICAL(&g_gyro_spinlock);
+        }
+
+        if (drop_count > 0 && (esp_timer_get_time() - timer) > 1000000) {
+            ESP_LOGW("MPU", "Dropped %lu gyro data samples due to queue overflow.", drop_count);
+            drop_count = 0;
+            timer = esp_timer_get_time();
         }
     }
 }

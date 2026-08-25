@@ -21,10 +21,6 @@ typedef struct {
     char valid;
 } servo_data_t;
 
-inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us) {
-    return (us * 16384) / 20000;
-}
-
 inline float __attribute__((always_inline)) fast_fabsf(float x) {
     union { float f; uint32_t i; } conv = {x};
     conv.i &= 0x7FFFFFFF; // Force le bit de signe à 0
