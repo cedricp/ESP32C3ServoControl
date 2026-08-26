@@ -6,12 +6,12 @@
 #include <string.h>
 #include "esp_attr.h"
 
-#define CRSF_RX_PIN         GPIO_NUM_3       
-#define CRSF_TX_PIN         GPIO_NUM_NC 
-#define CRSF_BAUD_RATE      420000
-#define CRSF_TIMEOUT_MS     250
+#define CRSF_RX_PIN GPIO_NUM_3
+#define CRSF_TX_PIN GPIO_NUM_NC
+#define CRSF_BAUD_RATE 420000
+#define CRSF_TIMEOUT_MS 250
 
-#define CRSF_UART_PORT      UART_NUM_0
+#define CRSF_UART_PORT UART_NUM_0
 
 portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
 servo_data_t g_servo_data;
@@ -23,26 +23,30 @@ IRAM_ATTR void get_servo_data(servo_data_t *data)
     portEXIT_CRITICAL(&g_servo_spinlock);
 }
 
-static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, const uint8_t *payload) {
+static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, const uint8_t *payload)
+{
     int bit_offset = ch * 11;
-    int byte_index = bit_offset >> 3;        // bit_offset / 8
-    int bit_shift  = bit_offset & 0x07;      // bit_offset % 8
+    int byte_index = bit_offset >> 3;  // bit_offset / 8
+    int bit_shift = bit_offset & 0x07; // bit_offset % 8
 
     // Read 3 bytes to guarantee 11 bits are always available regardless of alignment
-    uint32_t raw = (uint32_t)payload[byte_index]
-                 | (uint32_t)payload[byte_index + 1] << 8
-                 | (uint32_t)payload[byte_index + 2] << 16;
+    uint32_t raw = (uint32_t)payload[byte_index] | (uint32_t)payload[byte_index + 1] << 8 | (uint32_t)payload[byte_index + 2] << 16;
 
     return (raw >> bit_shift) & 0x07FF;
 }
 
-static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len) {
+static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len)
+{
     uint8_t crc = 0;
-    for (uint8_t i = 0; i < len; i++) {
+    for (uint8_t i = 0; i < len; i++)
+    {
         crc ^= ptr[i];
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 0x80) crc = (crc << 1) ^ 0xD5;
-            else crc <<= 1;
+        for (uint8_t j = 0; j < 8; j++)
+        {
+            if (crc & 0x80)
+                crc = (crc << 1) ^ 0xD5;
+            else
+                crc <<= 1;
         }
     }
     return crc;
@@ -51,18 +55,18 @@ static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *pt
 // ==========================================
 // CROSSFIRE UART task
 // ==========================================
-void crsf_rx_task(void *pvParameters) {
-    uint8_t buffer[128];   // Larger than one frame — holds overlap
+void crsf_rx_task(void *pvParameters)
+{
+    uint8_t buffer[128]; // Larger than one frame — holds overlap
     int buf_len = 0;
-    
+
     // Init UART for CRSF reception
     uart_config_t uart_config = {
         .baud_rate = CRSF_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
+        .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-    };
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE};
 
     uart_param_config(CRSF_UART_PORT, &uart_config);
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
@@ -70,64 +74,72 @@ void crsf_rx_task(void *pvParameters) {
 
     TickType_t last_rx_time = xTaskGetTickCount();
 
-    while (1) {
+    while (1)
+    {
         // Fill whatever space is left in the buffer
         int bytes_read = uart_read_bytes(
             CRSF_UART_PORT,
             buffer + buf_len,
             sizeof(buffer) - buf_len,
-            pdMS_TO_TICKS(20)
-        );
+            pdMS_TO_TICKS(20));
 
-        if (bytes_read == 0 && (xTaskGetTickCount() - last_rx_time) > pdMS_TO_TICKS(CRSF_TIMEOUT_MS)) {
+        if (bytes_read == 0 && (xTaskGetTickCount() - last_rx_time) > pdMS_TO_TICKS(CRSF_TIMEOUT_MS))
+        {
             // No data received for 250ms, send failsafe values to servo task
             portENTER_CRITICAL(&g_servo_spinlock);
             g_servo_data.valid = 0;
             portEXIT_CRITICAL(&g_servo_spinlock);
-        } else if (bytes_read > 0) {
-            last_rx_time = xTaskGetTickCount();  // ← Only update when data arrives
         }
-        
+        else if (bytes_read > 0)
+        {
+            last_rx_time = xTaskGetTickCount(); // ← Only update when data arrives
+        }
+
         if (bytes_read > 0)
             buf_len += bytes_read;
 
         // Scan forward for a valid frame start
         int i = 0;
-        while (i < buf_len) {
+        while (i < buf_len)
+        {
 
             // Step 1: find sync byte
-            if (buffer[i] != 0xC8) {
+            if (buffer[i] != 0xC8)
+            {
                 i++;
                 continue;
             }
 
             // Step 2: do we have enough bytes to read the length field?
             if (i + 1 >= buf_len)
-                break;  // Wait for more data
+                break; // Wait for more data
 
             uint8_t packet_len = buffer[i + 1];
 
-            if (packet_len > 62) {
+            if (packet_len > 62)
+            {
                 // Implausible length — this 0xC8 was a false positive, keep scanning
                 i++;
                 continue;
             }
 
             // Step 3: do we have the full frame yet?  (sync + len + payload)
-            int frame_end = i + 2 + packet_len;  // index of last byte + 1
+            int frame_end = i + 2 + packet_len; // index of last byte + 1
             if (frame_end > buf_len)
-                break;  // Partial frame — wait for more data, do NOT discard
+                break; // Partial frame — wait for more data, do NOT discard
 
             // Step 4: check frame type
-            if (buffer[i + 2] != 0x16) {
-                i++;  // False positive sync byte, keep scanning
+            if (buffer[i + 2] != 0x16)
+            {
+                i++; // False positive sync byte, keep scanning
                 continue;
             }
 
             // Step 5: CRC check
             uint8_t computed_crc = crsf_crc8(&buffer[i + 2], packet_len - 1);
-            if (computed_crc != buffer[frame_end - 1]) {
-                i++;  // CRC failed — this sync byte was not a real frame start
+            if (computed_crc != buffer[frame_end - 1])
+            {
+                i++; // CRC failed — this sync byte was not a real frame start
                 continue;
             }
 
@@ -136,7 +148,8 @@ void crsf_rx_task(void *pvParameters) {
 
             servo_data_t tx_data;
             tx_data.valid = 1;
-            for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++) {
+            for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++)
+            {
                 tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 3) / 5 + 1500;
             }
             portENTER_CRITICAL(&g_servo_spinlock);
@@ -148,7 +161,8 @@ void crsf_rx_task(void *pvParameters) {
         }
 
         // Shift remaining unprocessed bytes to the front of the buffer
-        if (i > 0) {
+        if (i > 0)
+        {
             buf_len -= i;
             if (buf_len > 0)
                 memmove(buffer, buffer + i, buf_len);

@@ -40,7 +40,8 @@ typedef struct __attribute__((__packed__))
 } dns_header_t;
 
 // DNS Question Packet
-typedef struct {
+typedef struct
+{
     uint16_t type;
     uint16_t class;
 } dns_question_t;
@@ -56,7 +57,6 @@ typedef struct __attribute__((__packed__))
     uint32_t ip_addr;
 } dns_answer_t;
 
-
 /*
     Parse the name from the packet from the DNS name format to a regular .-seperated name
     returns the pointer to the next part of the packet
@@ -68,11 +68,13 @@ static char *parse_dns_name(char *raw_name, char *parsed_name, size_t parsed_nam
     char *name_itr = parsed_name;
     int name_len = 0;
 
-    do {
+    do
+    {
         int sub_name_len = *label;
         // (len + 1) since we are adding  a '.'
         name_len += (sub_name_len + 1);
-        if (name_len > parsed_name_max_len) {
+        if (name_len > parsed_name_max_len)
+        {
             return NULL;
         }
 
@@ -92,7 +94,8 @@ static char *parse_dns_name(char *raw_name, char *parsed_name, size_t parsed_nam
 // Parses the DNS request and prepares a DNS response with the IP of the softAP
 static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t dns_reply_max_len, dns_server_handle_t h)
 {
-    if (req_len > dns_reply_max_len) {
+    if (req_len > dns_reply_max_len)
+    {
         return -1;
     }
 
@@ -106,7 +109,8 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
              ntohs(header->id), ntohs(header->flags), ntohs(header->qd_count));
 
     // Not a standard query
-    if ((header->flags & OPCODE_MASK) != 0) {
+    if ((header->flags & OPCODE_MASK) != 0)
+    {
         return 0;
     }
 
@@ -117,7 +121,8 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
     header->an_count = htons(qd_count);
 
     int reply_len = qd_count * sizeof(dns_answer_t) + req_len;
-    if (reply_len > dns_reply_max_len) {
+    if (reply_len > dns_reply_max_len)
+    {
         return -1;
     }
 
@@ -127,9 +132,11 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
     char name[128];
 
     // Respond to all questions based on configured rules
-    for (int qd_i = 0; qd_i < qd_count; qd_i++) {
+    for (int qd_i = 0; qd_i < qd_count; qd_i++)
+    {
         char *name_end_ptr = parse_dns_name(cur_qd_ptr, name, sizeof(name));
-        if (name_end_ptr == NULL) {
+        if (name_end_ptr == NULL)
+        {
             ESP_LOGE(TAG, "Failed to parse DNS question: %s", cur_qd_ptr);
             return -1;
         }
@@ -140,24 +147,31 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
 
         ESP_LOGD(TAG, "Received type: %d | Class: %d | Question for: %s", qd_type, qd_class, name);
 
-        if (qd_type == QD_TYPE_A) {
-            esp_ip4_addr_t ip = { .addr = IPADDR_ANY };
+        if (qd_type == QD_TYPE_A)
+        {
+            esp_ip4_addr_t ip = {.addr = IPADDR_ANY};
             // Check the configured rules to decide whether to answer this question or not
-            for (int i = 0; i < h->num_of_entries; ++i) {
+            for (int i = 0; i < h->num_of_entries; ++i)
+            {
                 // check if the name either corresponds to the entry, or if we should answer to all queries ("*")
-                if (strcmp(h->entry[i].name, "*") == 0 || strcmp(h->entry[i].name, name) == 0) {
-                    if (h->entry[i].if_key) {
+                if (strcmp(h->entry[i].name, "*") == 0 || strcmp(h->entry[i].name, name) == 0)
+                {
+                    if (h->entry[i].if_key)
+                    {
                         esp_netif_ip_info_t ip_info;
                         esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey(h->entry[i].if_key), &ip_info);
                         ip.addr = ip_info.ip.addr;
                         break;
-                    } else if (h->entry[i].ip.addr != IPADDR_ANY) {
+                    }
+                    else if (h->entry[i].ip.addr != IPADDR_ANY)
+                    {
                         ip.addr = h->entry[i].ip.addr;
                         break;
                     }
                 }
             }
-            if (ip.addr == IPADDR_ANY) {    // no rule applies, continue with another question
+            if (ip.addr == IPADDR_ANY)
+            { // no rule applies, continue with another question
                 continue;
             }
             dns_answer_t *answer = (dns_answer_t *)cur_ans_ptr;
@@ -188,7 +202,8 @@ static void dns_server_task(void *pvParameters)
     int ip_protocol;
     dns_server_handle_t handle = pvParameters;
 
-    while (handle->started) {
+    while (handle->started)
+    {
 
         struct sockaddr_in dest_addr;
         dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -199,7 +214,8 @@ static void dns_server_task(void *pvParameters)
         inet_ntoa_r(dest_addr.sin_addr, addr_str, sizeof(addr_str) - 1);
 
         int sock = socket(addr_family, SOCK_DGRAM, ip_protocol);
-        if (sock < 0) {
+        if (sock < 0)
+        {
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
             break;
         }
@@ -207,31 +223,38 @@ static void dns_server_task(void *pvParameters)
 
         int opt = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        
+
         int err = bind(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-        if (err < 0) {
+        if (err < 0)
+        {
             ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
         }
         ESP_LOGI(TAG, "Socket bound, port %d", DNS_PORT);
 
-        while (handle->started) {
+        while (handle->started)
+        {
             ESP_LOGI(TAG, "Waiting for data");
             struct sockaddr_in6 source_addr; // Large enough for both IPv4 or IPv6
             socklen_t socklen = sizeof(source_addr);
             int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
 
             // Error occurred during receiving
-            if (len < 0) {
+            if (len < 0)
+            {
                 ESP_LOGE(TAG, "recvfrom failed: errno %d", errno);
                 close(sock);
                 break;
             }
             // Data received
-            else {
+            else
+            {
                 // Get the sender's ip address as string
-                if (source_addr.sin6_family == PF_INET) {
+                if (source_addr.sin6_family == PF_INET)
+                {
                     inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-                } else if (source_addr.sin6_family == PF_INET6) {
+                }
+                else if (source_addr.sin6_family == PF_INET6)
+                {
                     inet6_ntoa_r(source_addr.sin6_addr, addr_str, sizeof(addr_str) - 1);
                 }
 
@@ -242,11 +265,15 @@ static void dns_server_task(void *pvParameters)
                 int reply_len = parse_dns_request(rx_buffer, len, reply, DNS_MAX_LEN, handle);
 
                 ESP_LOGI(TAG, "Received %d bytes from %s | DNS reply with len: %d", len, addr_str, reply_len);
-                if (reply_len <= 0) {
+                if (reply_len <= 0)
+                {
                     ESP_LOGE(TAG, "Failed to prepare a DNS reply");
-                } else {
+                }
+                else
+                {
                     int err = sendto(sock, reply, reply_len, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
-                    if (err < 0) {
+                    if (err < 0)
+                    {
                         ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                         break;
                     }
@@ -254,7 +281,8 @@ static void dns_server_task(void *pvParameters)
             }
         }
 
-        if (sock != -1) {
+        if (sock != -1)
+        {
             ESP_LOGE(TAG, "Shutting down socket");
             shutdown(sock, 0);
             close(sock);
@@ -278,7 +306,8 @@ dns_server_handle_t start_dns_server(dns_server_config_t *config)
 
 void stop_dns_server(dns_server_handle_t handle)
 {
-    if (handle) {
+    if (handle)
+    {
         handle->started = false;
         vTaskDelete(handle->task);
         free(handle);
