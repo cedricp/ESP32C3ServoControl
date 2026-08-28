@@ -41,6 +41,7 @@ extern void gyro_calib(void);
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
 extern void save_pid_config(void);
+extern void load_pid_config(void);
 extern void erase_nvs(void);
 extern void save_pwm_config(void);
 extern void reset_crash(void);
@@ -173,6 +174,8 @@ esp_err_t config_post_handler(httpd_req_t *req)
     cJSON_Delete(json);
 
     save_pid_config();
+
+    load_pid_config();
 
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;

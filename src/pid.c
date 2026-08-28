@@ -166,6 +166,13 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
 
     // 1. Normalisation de l'accéléromètre
     norm = ax * ax + ay * ay + az * az;
+
+    // Weighting the KP term to avoid instability
+    const float deviation = fast_fabsf(norm - 1.0f);
+    float weight = 1.0f - (deviation * 2.0f);
+    if (weight < 0.0f) weight = 0.0f;
+    const float kp_effective = MAHONY_KP * weight;
+
     if (norm > 0.0001f)
     {
         norm = fast_inv_sqrtf(norm);
@@ -202,9 +209,9 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
         }
 
         // 5. Correction proportionnelle
-        gx += MAHONY_KP * ex;
-        gy += MAHONY_KP * ey;
-        gz += MAHONY_KP * ez;
+        gx += kp_effective * ex;
+        gy += kp_effective * ey;
+        gz += kp_effective * ez;
     }
 
     // 6. Intégration du quaternion (Formule exacte d'Euler)
@@ -236,7 +243,7 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
     // Roll : -180° à +180°
     attidude->rollDeg = fast_atan2f(2.0f * (q0 * q1 + q2 * q3), 1.0f - 2.0f * (q1 * q1 + q2 * q2)) * RAD_TO_DEG;
 
-    float sinp = -2.0f * (q0 * q2 - q1 * q3); 
+    float sinp = 2.0f * (q0 * q2 - q1 * q3); 
     
     if (fabsf(sinp) >= 1.0f)
     {

@@ -152,8 +152,7 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
     // Vérifie que la clé existe ET que la taille enregistrée correspond à la structure actuelle
     if (err == ESP_OK && required_size != size)
     {
-        ESP_LOGE("NVS", "Failed to load key - removing it (length mismatch) %s %d %d", key, required_size, size);
-        nvs_erase_key(handle, key);
+        ESP_LOGE("NVS", "Failed to load key -(length mismatch) %s %d %d", key, required_size, size);
         return ESP_ERR_NVS_INVALID_LENGTH;
     }
     else if (err != ESP_OK)

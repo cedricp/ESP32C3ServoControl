@@ -294,7 +294,7 @@ void actions_task(void *pvParameters)
 
     for (int i = 0; i < 4; i++)
     {
-        printf("Reset reason (receny to old) %d: %s\n", i, reset_reason_to_str(g_crash_reasons[i]));
+        printf("Reset reason (recent to old) %d: %s\n", i, reset_reason_to_str(g_crash_reasons[i]));
     }
 
     while (1)
@@ -307,8 +307,14 @@ void actions_task(void *pvParameters)
             blink_led(4, 200, false); // Visual feedback for server off
             vTaskDelay(3000);
         }
-
-        if (g_elrs_data_valid && !is_elrs_armed() && !server_is_running())
+        else  if (g_elrs_data_valid && !is_elrs_armed() && !server_is_running())
+        {
+            printf("Server started\n");
+            start_webserver();
+            blink_led(4, 200, true); // Visual feedback for server on
+            vTaskDelay(3000);
+        }
+        else if (!g_elrs_data_valid && !server_is_running())
         {
             printf("Server started\n");
             start_webserver();
@@ -471,10 +477,10 @@ void servo_update_task(void *pvParameters)
             }
             g_elrs_armed = rx_data.us_values[4] > 1600;
         }
-
         if (gyro_data.valid)
         {
 #ifdef LEVEL_MODE_MAHONY
+            // ~70us execution time
             mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
 #else
             compute_attitude(&g_attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
@@ -486,9 +492,11 @@ void servo_update_task(void *pvParameters)
             if (g_flightmode == FLIGHTMODE_LEVEL)
             {
 #ifdef LEVEL_MODE_MAHONY
-                // 70 us execution time
                 mahony_get_euler(&g_attitude);
 #endif
+                // Pitch : -up +down
+                // Roll : -left +right
+                // Yaw : -right +left
                 float attitude_pitch = g_attitude.pitchDeg + attitude_correction_rp[1];
                 float attitude_roll = g_attitude.rollDeg + attitude_correction_rp[0];
 
@@ -498,25 +506,24 @@ void servo_update_task(void *pvParameters)
                 targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
 
                 float stickInputPitch = nomalise_stick(rx_data.us_values[CHANNEL_ELEVATOR]);
-                float targetAnglePitch = -stickInputPitch * 35.0f; // -35° à +35°
+                float targetAnglePitch = stickInputPitch * 35.0f; // -35° à +35°
                 float targetRatePitch = 3.5f * (targetAnglePitch - attitude_pitch);
                 targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
                 rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
-                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
-                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));\
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_gain, dt);
             }
             else if (g_flightmode == FLIGHTMODE_STAB)
             {
-                rx_data.us_values[CHANNEL_AILERON]  = compute_axis(&pidRoll, rx_data.us_values[CHANNEL_AILERON], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_AILERON]  = compute_axis(&pidRoll,  rx_data.us_values[CHANNEL_AILERON], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
                 rx_data.us_values[CHANNEL_ELEVATOR] = compute_axis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_gain, dt);
-                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], gyro_data.rot_z, gyro_data.rot_z_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw,   rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_gain, dt);
             }
         }
         else if (gyro_data.valid && !rx_data.valid)
         {
 #ifdef LEVEL_MODE_MAHONY
-            // 33us execution timex
             mahony_get_euler(&g_attitude);
 #endif
             float attitude_pitch = g_attitude.pitchDeg + attitude_correction_rp[1];
@@ -527,13 +534,13 @@ void servo_update_task(void *pvParameters)
             if (pidPitch.invert) targetAngleRoll = -targetAngleRoll;
             targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
             
-            float targetAnglePitch = 10.f;
+            float targetAnglePitch = -10.f;
             float targetRatePitch = 3.5f * (targetAnglePitch - attitude_pitch);
             if (pidPitch.invert) targetRatePitch = -targetRatePitch;
             targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
-            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
-            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
+            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
+            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, -gyro_data.rot_y, -gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
             rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
             rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
             gyro_failsafe = true;
@@ -576,10 +583,9 @@ void servo_update_task(void *pvParameters)
         if (esp_timer_get_time() - output_timer > 500000)
         {
             output_timer = esp_timer_get_time();
-            // printf("Servo values : %d %d %d %d %d %d\n", rx_data.us_values[0], rx_data.us_values[1], rx_data.us_values[2], rx_data.us_values[3], rx_data.us_values[4], rx_data.us_values[5]);
             printf("Gyro values : %f %f %f\n", gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z);
             printf("Accel values : %f %f %f\n", gyro_data.ax, gyro_data.ay, gyro_data.az);
-            printf("Attitude : roll %f pitch %f dt %f [%i %i %i]\n", g_attitude.rollDeg, g_attitude.pitchDeg, dt, g_invert_accel[0], g_invert_accel[1], g_invert_accel[2]);
+            printf("Attitude : roll %f pitch %f dt %f\n", g_attitude.rollDeg, g_attitude.pitchDeg, dt);
             fflush(stdout);
         }
 #endif
@@ -616,8 +622,6 @@ void app_main(void)
     load_pid_config();
     load_pwm_config();
     load_attitude_correction();
-
-    start_webserver();
 
     gyro_queue = xQueueCreate(1, sizeof(gyro_data_t));
 
