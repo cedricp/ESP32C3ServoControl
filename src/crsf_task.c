@@ -1,8 +1,10 @@
 #include "crsf_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include "esp_task_wdt.h"
 #include <string.h>
 #include "esp_attr.h"
 
@@ -13,24 +15,33 @@
 
 #define CRSF_UART_PORT UART_NUM_0
 
-portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
+SemaphoreHandle_t g_crsf_mutex = NULL;
+
+//portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
 servo_data_t g_servo_data;
 
 IRAM_ATTR void get_servo_data(servo_data_t *data)
 {
-    portENTER_CRITICAL(&g_servo_spinlock);
-    *data = g_servo_data;
-    portEXIT_CRITICAL(&g_servo_spinlock);
+    if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        *data = g_servo_data;
+        xSemaphoreGive(g_crsf_mutex);
+    }
 }
 
 static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, const uint8_t *payload)
 {
+
     int bit_offset = ch * 11;
     int byte_index = bit_offset >> 3;  // bit_offset / 8
     int bit_shift = bit_offset & 0x07; // bit_offset % 8
 
     // Read 3 bytes to guarantee 11 bits are always available regardless of alignment
-    uint32_t raw = (uint32_t)payload[byte_index] | (uint32_t)payload[byte_index + 1] << 8 | (uint32_t)payload[byte_index + 2] << 16;
+   uint32_t raw = (uint32_t)payload[byte_index] | ((uint32_t)payload[byte_index + 1] << 8);
+
+    if (byte_index + 2 < 22)
+    {
+        raw |= ((uint32_t)payload[byte_index + 2] << 16);
+    }
 
     return (raw >> bit_shift) & 0x07FF;
 }
@@ -50,6 +61,11 @@ static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *pt
         }
     }
     return crc;
+}
+
+void crsf_init()
+{
+    g_crsf_mutex = xSemaphoreCreateMutex();
 }
 
 // ==========================================
@@ -74,8 +90,11 @@ void crsf_rx_task(void *pvParameters)
 
     TickType_t last_rx_time = xTaskGetTickCount();
 
+    esp_task_wdt_add(NULL);
+
     while (1)
     {
+        esp_task_wdt_reset();
         // Fill whatever space is left in the buffer
         int bytes_read = uart_read_bytes(
             CRSF_UART_PORT,
@@ -86,9 +105,10 @@ void crsf_rx_task(void *pvParameters)
         if (bytes_read == 0 && (xTaskGetTickCount() - last_rx_time) > pdMS_TO_TICKS(CRSF_TIMEOUT_MS))
         {
             // No data received for 250ms, send failsafe values to servo task
-            portENTER_CRITICAL(&g_servo_spinlock);
-            g_servo_data.valid = 0;
-            portEXIT_CRITICAL(&g_servo_spinlock);
+            if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                g_servo_data.valid = 0;
+                xSemaphoreGive(g_crsf_mutex);
+            }
         }
         else if (bytes_read > 0)
         {
@@ -116,7 +136,7 @@ void crsf_rx_task(void *pvParameters)
 
             uint8_t packet_len = buffer[i + 1];
 
-            if (packet_len > 62)
+            if (packet_len < 4 || packet_len > 62)
             {
                 // Implausible length — this 0xC8 was a false positive, keep scanning
                 i++;
@@ -152,12 +172,18 @@ void crsf_rx_task(void *pvParameters)
             {
                 tx_data.us_values[ch] = ((crsf_get_channel(ch, payload) - 992) * 3) / 5 + 1500;
             }
-            portENTER_CRITICAL(&g_servo_spinlock);
-            g_servo_data = tx_data;
-            portEXIT_CRITICAL(&g_servo_spinlock);
+            if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                g_servo_data = tx_data;
+                xSemaphoreGive(g_crsf_mutex);
+            }
 
             // Advance past the consumed frame
             i = frame_end;
+        }
+
+        if (i == 0 && buf_len == sizeof(buffer))
+        {
+            i = 1;
         }
 
         // Shift remaining unprocessed bytes to the front of the buffer

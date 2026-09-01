@@ -22,9 +22,10 @@
 
 #include "pid.h"
 
-// #define DEBUG_STACK 1
 #define DEBUG_GYRO 1
-#define LEVEL_MODE_MAHONY 1
+// #define DEBUG_STACK 1
+// TODO : Fix yaw (remove Z correction)
+// #define LEVEL_MODE_MAHONY 1
 
 /*
  * MPU 6500 Axis reminder
@@ -36,8 +37,6 @@
  * Gyro +Z -> yaw left
  */
 
-#define ONBOARD_LED_PIN 8
-#define PAIRING_BUTTON_PIN 9
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
 
@@ -84,7 +83,7 @@ bool g_elrs_data_valid = false;
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
-TaskHandle_t gyro_task_handle = NULL;
+TaskHandle_t gyro_sv_task_handle = NULL;
 
 QueueHandle_t gyro_queue = NULL;
 
@@ -257,15 +256,15 @@ void reset_crash(void)
 // ==========================================
 void actions_task(void *pvParameters)
 {
-    // 1. Configure the input pullup
-    //     gpio_config_t io_conf = {
-    //         .pin_bit_mask = (1ULL << PAIRING_BUTTON_PIN),
-    //         .mode         = GPIO_MODE_INPUT,
-    //         .pull_up_en   = GPIO_PULLUP_ENABLE,
-    //         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //         .intr_type    = GPIO_INTR_DISABLE // No interrupts needed!
-    //     };
-    //     gpio_config(&io_conf);
+    // Configure the input pullup
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << PAIRING_BUTTON_PIN),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
 
     gpio_config_t io_conf2 = {
         .pin_bit_mask = (1ULL << ONBOARD_LED_PIN),
@@ -477,6 +476,7 @@ void servo_update_task(void *pvParameters)
             }
             g_elrs_armed = rx_data.us_values[4] > 1600;
         }
+
         if (gyro_data.valid)
         {
 #ifdef LEVEL_MODE_MAHONY
@@ -529,7 +529,7 @@ void servo_update_task(void *pvParameters)
             float attitude_pitch = g_attitude.pitchDeg + attitude_correction_rp[1];
             float attitude_roll = g_attitude.rollDeg + attitude_correction_rp[0];
             // Failsafe mode: no RX data, but gyro is valid. Try to keep plane flat and turning
-            float targetAngleRoll = 20.f; // -45° à +45°
+            float targetAngleRoll = 20.f;
             float targetRateRoll = 4.0f * (targetAngleRoll - attitude_roll);
             if (pidPitch.invert) targetAngleRoll = -targetAngleRoll;
             targetRateRoll = clampf(targetRateRoll, -pidRoll.maxRateDegs, pidRoll.maxRateDegs);
@@ -595,8 +595,6 @@ void servo_update_task(void *pvParameters)
 void app_main(void)
 {
     // Check EEPROM initialization
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -606,16 +604,6 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // GPIO pin 4 temp config, seems to avoid crashes
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << GPIO_NUM_4),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE, // Fixe l'état haut par défaut
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE // Désactive toute interruption si inutile
-    };
-    gpio_config(&io_conf);
-
     init_pid_factory();
     init_pwm_factory();
 
@@ -623,12 +611,16 @@ void app_main(void)
     load_pwm_config();
     load_attitude_correction();
 
+    // Init semaphore
+    crsf_init();
+    gyro_init();
+
     gyro_queue = xQueueCreate(1, sizeof(gyro_data_t));
 
-    xTaskCreate(actions_task, "action_task", 8192, NULL, 5, &actions_task_handle);
-    xTaskCreate(crsf_rx_task, "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
-    xTaskCreate(servo_update_task, "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
-    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 21, &gyro_task_handle);
+    xTaskCreate(actions_task,         "action_task", 8192, NULL, 5, &actions_task_handle);
+    xTaskCreate(crsf_rx_task,         "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
+    xTaskCreate(servo_update_task,    "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
+    xTaskCreate(gyro_supervisor_task, "gyro_sv", 2048, NULL, 21, &gyro_sv_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)
@@ -656,7 +648,7 @@ void app_main(void)
 
         if (gyro_task_handle != NULL)
         {
-            UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(gyro_task_handle);
+            UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(gyro_supervisor_task);
 
             printf("Remaining stack for Gyro Button Task: %u words\n", (unsigned int)remaining_stack);
         }

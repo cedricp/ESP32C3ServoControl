@@ -107,6 +107,7 @@ void check_i2c(int gpio_sda, int gpio_scl)
     int sda_level = gpio_get_level(gpio_sda);
     if (sda_level == 0)
     {
+        ESP_LOGI("I2C", "I2C Bus recovery try");
         i2c_bus_recovery(gpio_sda, gpio_scl);
     }
 }

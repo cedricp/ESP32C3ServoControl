@@ -10,6 +10,9 @@
 #define NUM_PWM_OUPUTS 6
 #define NUM_CRSF_CHANNELS 8
 
+#define ONBOARD_LED_PIN 8
+#define PAIRING_BUTTON_PIN 9
+
 const char *reset_reason_to_str(uint8_t reason);
 void check_i2c(int gpio_sda, int gpio_scl);
 

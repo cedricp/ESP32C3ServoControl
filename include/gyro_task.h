@@ -9,5 +9,6 @@ typedef struct
     char valid;
 } gyro_data_t;
 
-void gyro_control_task(void *pvParameters);
+void gyro_supervisor_task(void *pvParameters);
 void get_gyro_data(gyro_data_t *data);
+void gyro_init();
