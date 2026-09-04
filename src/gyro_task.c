@@ -52,10 +52,11 @@
 
 static i2c_master_bus_handle_t i2c_mpu_bus_handle = NULL;
 static i2c_master_dev_handle_t i2c_mpu_dev_handle = NULL;
-
 static SemaphoreHandle_t g_gyro_mutex = NULL;
-static volatile TickType_t last_heartbeat = 0;
 static TaskHandle_t gyro_task_handle = NULL;
+extern TaskHandle_t servo_task_handle;
+
+static volatile TickType_t last_heartbeat = 0;
 
 typedef struct
 {
@@ -71,7 +72,6 @@ static const float GYRO_SCALE = 1.0f / 65.5f; // LSB/(deg/s) pour ±500dps, cf d
 static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
 extern bool g_invert_accel[3];
-extern QueueHandle_t gyro_queue;
 
 // cutoff could be tuned for latency issue (less is induce more lag)
 static FilterPT1 filterGyroRoll;
@@ -191,7 +191,7 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
     return ESP_OK;
 }
 
-void get_gyro_data(gyro_data_t *data)
+IRAM_ATTR void get_gyro_data(gyro_data_t *data)
 {
     if (xSemaphoreTake(g_gyro_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
         *data = g_gyro_data;
@@ -274,7 +274,7 @@ void gyro_init()
 
 void i2c_recovery()
 {
-    ESP_LOGE("MPU", "I2C / DRDY Lockup détecté ! Tentative de récupération...");
+    ESP_LOGE("MPU", "I2C / DRDY Lockup detected, trying to recover...");
     
     // 1. Supprimer le driver I2C temporairement
     i2c_del_master_bus(i2c_mpu_bus_handle);
@@ -394,10 +394,7 @@ void gyro_control_task(void *pvParameters)
                 xSemaphoreGive(g_gyro_mutex);
             }
 
-            if (xQueueSend(gyro_queue, &g_gyro_data, 0) != pdPASS)
-            {
-                drop_count++;
-            } // Send the updated gyro data to the servo queue
+            xTaskNotify(servo_task_handle, EVENT_GYRO_VALID, eSetBits);
         }
 
         // if (drop_count > 0 && (esp_timer_get_time() - timer) > 5000000)
@@ -448,8 +445,9 @@ static void mpu_on()
 
 void gyro_supervisor_task(void *pvParameters) {
     last_heartbeat = xTaskGetTickCount();
-    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 20, &gyro_task_handle);
     mpu_on();
+    
+    xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 20, &gyro_task_handle);
 
     while(1) {
         vTaskDelay(pdMS_TO_TICKS(400));

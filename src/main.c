@@ -85,8 +85,6 @@ TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle = NULL;
 
-QueueHandle_t gyro_queue = NULL;
-
 static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us)
 {
     // return (us * 16384) / 20000;
@@ -422,6 +420,8 @@ void servo_update_task(void *pvParameters)
     init_attitude(&g_attitude, gyro_data.raw_ax, gyro_data.raw_ay, gyro_data.raw_az);
 #endif
 
+    uint32_t ul_notified_value;
+
     while (1)
     {
         int64_t now = esp_timer_get_time();
@@ -440,13 +440,14 @@ void servo_update_task(void *pvParameters)
             dt = 0.01f; // Fallback nominal à 20 ms (1/50 Hz)
         }
 
-        if (xQueueReceive(gyro_queue, &gyro_data, pdMS_TO_TICKS(5)) != pdTRUE)
+        BaseType_t xResult = xTaskNotifyWait(0x00, ULONG_MAX, &ul_notified_value, pdMS_TO_TICKS(5));
+        if (xResult == pdTRUE)
         {
-            // Timeout or no data available, mark gyro data as invalid
-            // 20 ms is enough for 50 Hz update rate, if we don't get data in that time, something is wrong
+            get_gyro_data(&gyro_data);
+        } else {
             gyro_data.valid = false;
-            //ESP_LOGW("MPU", "Gyro data timeout");
         }
+
         get_servo_data(&rx_data);
 
         g_elrs_data_valid = rx_data.valid;
@@ -523,6 +524,7 @@ void servo_update_task(void *pvParameters)
         }
         else if (gyro_data.valid && !rx_data.valid)
         {
+            // No RX data but gyro OK, attempt to save plane
 #ifdef LEVEL_MODE_MAHONY
             mahony_get_euler(&g_attitude);
 #endif
@@ -540,14 +542,13 @@ void servo_update_task(void *pvParameters)
             targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
             rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
-            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, -gyro_data.rot_y, -gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
+            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
             rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
             rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
             gyro_failsafe = true;
         }
 
-        int64_t delta = esp_timer_get_time() - servo_timer;
-        if (delta > 20000)
+        if ((esp_timer_get_time() - servo_timer) > 20000)
         {
             // 50 Hz refresh (20 ms)
             servo_timer = esp_timer_get_time();
@@ -615,8 +616,6 @@ void app_main(void)
     crsf_init();
     gyro_init();
 
-    gyro_queue = xQueueCreate(1, sizeof(gyro_data_t));
-
     xTaskCreate(actions_task,         "action_task", 8192, NULL, 5, &actions_task_handle);
     xTaskCreate(crsf_rx_task,         "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
@@ -646,7 +645,7 @@ void app_main(void)
             printf("Remaining stack for Slow Button Task: %u words\n", (unsigned int)remaining_stack);
         }
 
-        if (gyro_task_handle != NULL)
+        if (gyro_sv_task_handle != NULL)
         {
             UBaseType_t remaining_stack = uxTaskGetStackHighWaterMark(gyro_supervisor_task);
 

@@ -1,5 +1,8 @@
 #pragma once
 
+#define EVENT_GYRO_VALID 1<<0
+
+
 typedef struct
 {
     float rot_x, rot_y, rot_z;             // deg/s
