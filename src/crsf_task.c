@@ -8,16 +8,15 @@
 #include <string.h>
 #include "esp_attr.h"
 
-#define CRSF_RX_PIN GPIO_NUM_3
-#define CRSF_TX_PIN GPIO_NUM_NC
-#define CRSF_BAUD_RATE 420000
+#define CRSF_RX_PIN     GPIO_NUM_3
+#define CRSF_TX_PIN     GPIO_NUM_NC
+#define CRSF_BAUD_RATE  420000
 #define CRSF_TIMEOUT_MS 250
 
-#define CRSF_UART_PORT UART_NUM_0
+#define CRSF_UART_PORT  UART_NUM_0
 
 SemaphoreHandle_t g_crsf_mutex = NULL;
 
-//portMUX_TYPE g_servo_spinlock = portMUX_INITIALIZER_UNLOCKED;
 servo_data_t g_servo_data;
 
 IRAM_ATTR void get_servo_data(servo_data_t *data)
@@ -78,11 +77,11 @@ void crsf_rx_task(void *pvParameters)
 
     // Init UART for CRSF reception
     uart_config_t uart_config = {
-        .baud_rate = CRSF_BAUD_RATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE};
+        .baud_rate  = CRSF_BAUD_RATE,
+        .data_bits  = UART_DATA_8_BITS,
+        .parity     = UART_PARITY_DISABLE,
+        .stop_bits  = UART_STOP_BITS_1,
+        .flow_ctrl  = UART_HW_FLOWCTRL_DISABLE};
 
     uart_param_config(CRSF_UART_PORT, &uart_config);
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);

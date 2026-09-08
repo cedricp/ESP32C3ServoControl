@@ -23,10 +23,10 @@ float nomalise_stick(uint16_t pulse_us)
  * @param targetRate   Target rotation rate in deg/s
  * @param measuredRate Measured rotation rate by the gyro in deg/s
  * @param dt           Delta time between two loops in seconds
- * @param masterGain   GGlobal radio gain [0.0 to 1.0]
+ * @param master_kp_gain   GGlobal radio gain [0.0 to 1.0]
  * @param pid          Pointer to the PID structure for the axis
  */
-IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float masterGain, PID_Config_t *pid, char useStickFactor)
+IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float master_kp_gain, float master_kd_gain, PID_Config_t *pid, char useStickFactor)
 {
     float iTerm = 0.0f;
 
@@ -42,7 +42,7 @@ IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measu
             stickFactor = 0.0f;
     }
     // c. Proportionnal term (P)
-    float pTerm = pid->Kp * error_nomalized;
+    float pTerm = pid->Kp * error_nomalized * master_kp_gain;
 
     if (pid->Ki > 0.0f)
     {
@@ -64,12 +64,12 @@ IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measu
     {
         float rawDerivative = -(measuredRate_low - pid->prevMeasuredRate) / dt;
         float d_normalized = rawDerivative / pid->maxRateDegs;
-        dTerm = pid->Kd * d_normalized;
+        dTerm = pid->Kd * d_normalized * master_kd_gain;
     }
     pid->prevMeasuredRate = measuredRate_low;
 
     // f. Final gyro correction with master gain and stick factor
-    float gyroCorrection = (pTerm + iTerm + dTerm) * masterGain * stickFactor;
+    float gyroCorrection = (pTerm + iTerm + dTerm) * stickFactor;
 
     if (pid->invert)
     {
@@ -225,7 +225,7 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
     q0 += (-qb * ha - qc * hb - qd * hc);
     q1 += ( qa * ha + qc * hc - qd * hb);
     q2 += ( qa * hb - qb * hc + qd * ha);
-    q3 += ( qa * hc + qb * hb - qc * ha); // CORRECTION ICI : - qc * ha (au lieu de +)
+    q3 += ( qa * hc + qb * hb - qc * ha);
 
     // 7. Normalisation du quaternion
     norm = fast_inv_sqrtf(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);

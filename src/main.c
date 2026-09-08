@@ -22,7 +22,7 @@
 
 #include "pid.h"
 
-#define DEBUG_GYRO 1
+// #define DEBUG_GYRO 1
 // #define DEBUG_STACK 1
 // TODO : Fix yaw (remove Z correction)
 // #define LEVEL_MODE_MAHONY 1
@@ -40,14 +40,14 @@
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
 
-enum
+typedef enum
 {
     FLIGHTMODE_FREE = 0,
     FLIGHTMODE_STAB = 1,
     FLIGHTMODE_LEVEL = 2
 } flightmode_t;
 
-enum
+typedef enum
 {
     CHANNEL_AILERON,
     CHANNEL_ELEVATOR,
@@ -70,12 +70,15 @@ PID_Config_t *get_pid_yaw(void) { return &pidYaw; }
 
 attitude_t g_attitude;
 
-int g_master_gain_channel = 5;
+int g_master_kp_gain_channel = 5;
+int g_master_kd_gain_channel = 7;
 int g_flightmode_channel = 6;
-int g_flightmode = 0;
+flightmode_t g_flightmode = FLIGHTMODE_FREE;
+
 int g_ouput_mapping[NUM_PWM_OUPUTS];
 uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 bool g_invert_channel[NUM_PWM_OUPUTS];
+
 bool g_invert_accel[3];
 bool g_elrs_armed = false;
 bool g_elrs_data_valid = false;
@@ -134,7 +137,7 @@ void save_pid_config()
     {
         printf("Error saving pid_yaw\n");
     }
-    if (nvs_save_struct("mgain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel)) != ESP_OK)
+    if (nvs_save_struct("mgain_channel", &g_master_kp_gain_channel, sizeof(g_master_kp_gain_channel)) != ESP_OK)
     {
         printf("Error saving master_gain_channel\n");
     }
@@ -163,7 +166,7 @@ void load_pid_config()
     {
         printf("Error loading pid_yaw\n");
     }
-    if (nvs_load_struct("mgain_channel", &g_master_gain_channel, sizeof(g_master_gain_channel)) != ESP_OK)
+    if (nvs_load_struct("mgain_channel", &g_master_kp_gain_channel, sizeof(g_master_kp_gain_channel)) != ESP_OK)
     {
         printf("Error loading master_gain_channel\n");
     }
@@ -198,7 +201,7 @@ void load_attitude_correction()
 
 void init_pid_factory()
 {
-    g_master_gain_channel = 5;
+    g_master_kp_gain_channel = 5;
     g_flightmode_channel = 6;
     init_pid(&pidRoll, 0.5f, 0.0f, 0.0001f, 250.f, false);
     init_pid(&pidPitch, 0.6f, 0.0f, 0.0001f, 150.f, false);
@@ -332,11 +335,11 @@ void test_sequence(const uint32_t *sequence)
     }
 }
 
-static inline uint16_t compute_axis(PID_Config_t *pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_gain, float dt)
+static inline uint16_t compute_axis(PID_Config_t *pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_kp_gain, float master_kd_gain, float dt)
 {
     float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 0);
     float stickInput = nomalise_stick(stick_us);
-    float axis_correction = compute_axis_pid(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_gain, pid, 1);
+    float axis_correction = compute_axis_pid(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kp_gain, pid, 1);
     return map_to_pwm(axis_correction);
 }
 
@@ -413,7 +416,8 @@ void servo_update_task(void *pvParameters)
 #ifdef DEBUG_GYRO
     int64_t output_timer = esp_timer_get_time();
 #endif
-    float master_gain = 0.3f;
+    float master_kp_gain = 1.0f;
+    float master_kd_gain = 1.0f;
 
 #ifndef LEVEL_MODE_MAHONY
     get_gyro_data(&gyro_data);
@@ -454,10 +458,15 @@ void servo_update_task(void *pvParameters)
 
         if (rx_data.valid)
         {
-            if (g_master_gain_channel >= 0 && g_master_gain_channel < 8)
+            if (g_master_kp_gain_channel >= 0 && g_master_kp_gain_channel < 8)
             {
-                // Update master gain
-                master_gain = ((float)rx_data.us_values[g_master_gain_channel] - 1000.0f) * 1e-3f;
+                // Update master kp gain
+                master_kp_gain = ((float)rx_data.us_values[g_master_kp_gain_channel] - 1000.0f) * 1e-3f;
+            }
+            if (g_master_kd_gain_channel >= 0 && g_master_kd_gain_channel < 8)
+            {
+                // Update master kd gain
+                master_kd_gain = ((float)rx_data.us_values[g_master_kd_gain_channel] - 1000.0f) * 1e-3f;
             }
             if (g_flightmode_channel >= 0 && g_flightmode_channel < 8)
             {
@@ -511,15 +520,15 @@ void servo_update_task(void *pvParameters)
                 float targetRatePitch = 3.5f * (targetAnglePitch - attitude_pitch);
                 targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
-                rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
-                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));\
-                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, targetRateRoll, gyro_data.rot_x, gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &pidRoll, 0));
+                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &pidPitch, 0));
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw, rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_kp_gain, master_kd_gain, dt);
             }
             else if (g_flightmode == FLIGHTMODE_STAB)
             {
-                rx_data.us_values[CHANNEL_AILERON]  = compute_axis(&pidRoll,  rx_data.us_values[CHANNEL_AILERON], gyro_data.rot_x, gyro_data.rot_x_low, master_gain, dt);
-                rx_data.us_values[CHANNEL_ELEVATOR] = compute_axis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_gain, dt);
-                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw,   rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_gain, dt);
+                rx_data.us_values[CHANNEL_AILERON]  = compute_axis(&pidRoll,  rx_data.us_values[CHANNEL_AILERON], gyro_data.rot_x, gyro_data.rot_x_low, master_kp_gain, master_kd_gain, dt);
+                rx_data.us_values[CHANNEL_ELEVATOR] = compute_axis(&pidPitch, rx_data.us_values[CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_kp_gain, master_kd_gain, dt);
+                rx_data.us_values[CHANNEL_RUDDER]   = compute_axis(&pidYaw,   rx_data.us_values[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_kp_gain, master_kd_gain, dt);
             }
         }
         else if (gyro_data.valid && !rx_data.valid)
@@ -541,8 +550,8 @@ void servo_update_task(void *pvParameters)
             if (pidPitch.invert) targetRatePitch = -targetRatePitch;
             targetRatePitch = clampf(targetRatePitch, -pidPitch.maxRateDegs, pidPitch.maxRateDegs);
 
-            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_gain, &pidRoll, 0));
-            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_gain, &pidPitch, 0));
+            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &pidRoll, 0));
+            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &pidPitch, 0));
             rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
             rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
             gyro_failsafe = true;

@@ -277,21 +277,43 @@
 
     <form id="gainsChannel">   
         <div class="card">
-            <h2>Master Gain</h2>
+            <h2>Master Kp Gain</h2>
             <div class="control-group">
                 <div class="control-label">
-                    <span>Master gain channel input</span>
+                    <span>Master Kp gain channel input</span>
                 </div>
                 
-                <select id="master_gain" class="select-input">
-                    <option value="0">Channel 0</option>
-                    <option value="1">Channel 1</option>
-                    <option value="2">Channel 2</option>
-                    <option value="3">Channel 3</option>
-                    <option value="4">Channel 4</option>
-                    <option value="5">Channel 5</option>
-                    <option value="6">Channel 6</option>
-                    <option value="7">Channel 7</option>
+                <select id="master_kp_gain" class="select-input">
+                    <option value="255">None</option>
+                    <option value="0">Channel 1</option>
+                    <option value="1">Channel 2</option>
+                    <option value="2">Channel 3</option>
+                    <option value="3">Channel 4</option>
+                    <option value="4">Channel 5</option>
+                    <option value="5">Channel 6</option>
+                    <option value="6">Channel 7</option>
+                    <option value="7">Channel 8</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Master Kd Gain</h2>
+            <div class="control-group">
+                <div class="control-label">
+                    <span>Master Kd gain channel input</span>
+                </div>
+                
+                <select id="master_kd_gain" class="select-input">
+                    <option value="255">None</option>
+                    <option value="0">Channel 1</option>
+                    <option value="1">Channel 2</option>
+                    <option value="2">Channel 3</option>
+                    <option value="3">Channel 4</option>
+                    <option value="4">Channel 5</option>
+                    <option value="5">Channel 6</option>
+                    <option value="6">Channel 7</option>
+                    <option value="7">Channel 8</option>
                 </select>
             </div>
         </div>
@@ -303,14 +325,15 @@
                     <span>Flight mode channel input</span>
                 </div>
                 <select id="flightmode_channel" class="select-input">
-                    <option value="0">Channel 0</option>
-                    <option value="1">Channel 1</option>
-                    <option value="2">Channel 2</option>
-                    <option value="3">Channel 3</option>
-                    <option value="4">Channel 4</option>
-                    <option value="5">Channel 5</option>
-                    <option value="6">Channel 6</option>
-                    <option value="7">Channel 7</option>
+                    <option value="255">None</option>
+                    <option value="0">Channel 1</option>
+                    <option value="1">Channel 2</option>
+                    <option value="2">Channel 3</option>
+                    <option value="3">Channel 4</option>
+                    <option value="4">Channel 5</option>
+                    <option value="5">Channel 6</option>
+                    <option value="6">Channel 7</option>
+                    <option value="7">Channel 8</option>
                 </select>
                 <div id="fmstatus"></div>
             </div>
@@ -677,7 +700,8 @@
         status.textContent = "Sending config to ESP32...";
 
         const payload = {
-            master_gain: parseInt(document.getElementById('master_gain').value),
+            master_kp_gain: parseInt(document.getElementById('master_kp_gain').value),
+            master_kd_gain: parseInt(document.getElementById('master_kd_gain').value),
             
             roll_kp: parseFloat(document.getElementById('roll_kp').value),
             roll_kd: parseFloat(document.getElementById('roll_kd').value),
