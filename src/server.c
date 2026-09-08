@@ -31,7 +31,7 @@ extern int g_ouput_mapping[NUM_PWM_OUPUTS];
 extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
 extern bool g_invert_channel[NUM_PWM_OUPUTS];
 extern uint8_t g_crash_reasons[4];
-extern float attitude_correction_rp[2];
+extern float g_attitude_correction_rp[2];
 extern bool g_invert_accel[3];
 
 extern PID_Config_t *get_pid_roll(void);
@@ -456,8 +456,8 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
     cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg + attitude_correction_rp[0]);
-    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + attitude_correction_rp[1]);
+    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg + g_attitude_correction_rp[0]);
+    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + g_attitude_correction_rp[1]);
 
     const char *json_response = cJSON_PrintUnformatted(root);
 

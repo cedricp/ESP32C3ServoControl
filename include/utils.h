@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <math.h>
+#include <stdbool.h>
 #include "esp_err.h"
 
 #define DEG_TO_RAD (M_PI / 180.0f)
@@ -13,11 +14,37 @@
 #define ONBOARD_LED_PIN 8
 #define PAIRING_BUTTON_PIN 9
 
+#define LEDC_FREQUENCY_HZ 50
+#define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
+
+
 const char *reset_reason_to_str(uint8_t reason);
 void check_i2c(int gpio_sda, int gpio_scl);
 
 esp_err_t nvs_save_struct(const char *key, const void *data, size_t size);
 esp_err_t nvs_load_struct(const char *key, void *data, size_t size);
+
+typedef enum
+{
+    FLIGHTMODE_FREE = 0,
+    FLIGHTMODE_STAB = 1,
+    FLIGHTMODE_LEVEL = 2
+} flightmode_t;
+
+typedef enum
+{
+    CHANNEL_AILERON,
+    CHANNEL_ELEVATOR,
+    CHANNEL_THROTTLE,
+    CHANNEL_RUDDER,
+    CHANNEL_ARM
+} channels_t;
+
+typedef enum {
+    MOTOR_STATE_NORMAL,
+    MOTOR_STATE_EMERGENCY_CUT,
+    MOTOR_STATE_WAIT_THROTTLE_ZERO
+} motor_safety_state_t;
 
 typedef struct
 {
@@ -62,6 +89,15 @@ inline float __attribute__((always_inline)) fast_atan2f(float y, float x)
     }
 
     return (y < 0.0f) ? -angle : angle;
+}
+
+inline float __attribute__((always_inline)) constrain_angle_deg(float angle)
+{
+    while (angle > 180.0f)
+        angle -= 360.0f;
+    while (angle < -180.0f)
+        angle += 360.0f;
+    return angle;
 }
 
 inline float __attribute__((always_inline)) fast_sqrtf(float x)
@@ -135,3 +171,5 @@ inline uint16_t __attribute__((always_inline)) map_to_pwm(float x)
 {
     return (uint16_t)((x + 1.0f) * 500.0f + 1000.0f);
 }
+
+void blink_led(int times, int delay_ms, bool finish_lit);
