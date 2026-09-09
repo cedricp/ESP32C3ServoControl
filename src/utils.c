@@ -1,6 +1,8 @@
 #include "utils.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_rom_sys.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -163,4 +165,23 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
     }
 
     return err;
+}
+
+void blink_led(int times, int delay_ms, bool finish_lit)
+{
+    for (int i = 0; i < times; i++)
+    {
+        gpio_set_level(ONBOARD_LED_PIN, 1);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        gpio_set_level(ONBOARD_LED_PIN, 0);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+    if (finish_lit)
+    {
+        gpio_set_level(ONBOARD_LED_PIN, 0);
+    }
+    else
+    {
+        gpio_set_level(ONBOARD_LED_PIN, 1);
+    }
 }

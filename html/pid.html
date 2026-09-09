@@ -267,7 +267,7 @@
 
     <div class="actions">
         <button type="button" id="calibPitchBtn" onclick="calibPitch()">Pitch calibration</button>
-    </div>
+    </div><br />
 
     <div class="actions">
         <button type="button" id="calibRollBtn" onclick="calibRoll()">Roll calibration</button>
@@ -338,6 +338,16 @@
                 <div id="fmstatus"></div>
             </div>
         </div>
+
+        <div class="card">
+            <h2>Crash detection</h2>
+            <div class="control-label">
+                <span>Crash detection threshold in g</span>
+            </div>
+            <div class="control-label"><span>g</span><span class="val" id="crash_threshold_v">0.00</span></div>
+            <input type="range" id="crash_threshold" min="0" max="10" step="0.1" value="4.0">
+        </div>
+
     </form>
 
     <form id="pidForm">

@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/uart.h"
 #include "driver/ledc.h"
@@ -24,6 +23,7 @@
 
 // #define DEBUG_GYRO 1
 // #define DEBUG_STACK 1
+
 // TODO : Fix yaw (remove Z correction)
 // #define LEVEL_MODE_MAHONY 1
 
@@ -37,56 +37,47 @@
  * Gyro +Z -> yaw left
  */
 
-#define LEDC_FREQUENCY_HZ 50
-#define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
-
-typedef enum
-{
-    FLIGHTMODE_FREE = 0,
-    FLIGHTMODE_STAB = 1,
-    FLIGHTMODE_LEVEL = 2
-} flightmode_t;
-
-typedef enum
-{
-    CHANNEL_AILERON,
-    CHANNEL_ELEVATOR,
-    CHANNEL_THROTTLE,
-    CHANNEL_RUDDER,
-    CHANNEL_ARM
-} channels_t;
-
-const int servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
-uint8_t g_crash_reasons[4] = {0, 0, 0, 0};
-float attitude_correction_rp[2] = {0.f, 0.f};
 
 PID_Config_t pidRoll;
 PID_Config_t pidPitch;
 PID_Config_t pidYaw;
 
-PID_Config_t *get_pid_roll(void) { return &pidRoll; }
-PID_Config_t *get_pid_pitch(void) { return &pidPitch; }
-PID_Config_t *get_pid_yaw(void) { return &pidYaw; }
-
-attitude_t g_attitude;
-
-int g_master_kp_gain_channel = 5;
-int g_master_kd_gain_channel = 7;
-int g_flightmode_channel = 6;
-flightmode_t g_flightmode = FLIGHTMODE_FREE;
-
-int g_ouput_mapping[NUM_PWM_OUPUTS];
-uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
-bool g_invert_channel[NUM_PWM_OUPUTS];
-
-bool g_invert_accel[3];
-bool g_elrs_armed = false;
-bool g_elrs_data_valid = false;
+const int   g_servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
+float       g_attitude_correction_rp[2] = {0.f, 0.f};
+uint8_t     g_crash_reasons[4] = {0, 0, 0, 0};
+attitude_t  g_attitude;
+int         g_master_kp_gain_channel = 5;
+int         g_master_kd_gain_channel = 7;
+int         g_flightmode_channel = 6;
+int         g_flightmode = 0;
+int         g_ouput_mapping[NUM_PWM_OUPUTS];
+uint32_t    g_failsafe_us[NUM_PWM_OUPUTS];
+bool        g_invert_channel[NUM_PWM_OUPUTS];
+bool        g_invert_accel[3];
+bool        g_elrs_armed = false;
+bool        g_elrs_data_valid = false;
+float       g_crash_g_threshold = 16.f;
+motor_safety_state_t g_current_state = MOTOR_STATE_NORMAL;
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle = NULL;
+
+PID_Config_t *get_pid_roll(void)
+{
+     return &pidRoll;
+}
+
+PID_Config_t *get_pid_pitch(void)
+{
+     return &pidPitch;
+}
+
+PID_Config_t *get_pid_yaw(void)
+{
+    return &pidYaw;
+}
 
 static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us)
 {
@@ -96,14 +87,14 @@ static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t u
 
 void calibrate_roll(void)
 {
-    attitude_correction_rp[0] = -g_attitude.rollDeg;
-    nvs_save_struct("attitude_corr", &attitude_correction_rp, sizeof(attitude_correction_rp));
+    g_attitude_correction_rp[0] = -g_attitude.rollDeg;
+    nvs_save_struct("attitude_corr", &g_attitude_correction_rp, sizeof(g_attitude_correction_rp));
 }
 
 void calibrate_pitch(void)
 {
-    attitude_correction_rp[1] = -g_attitude.pitchDeg;
-    nvs_save_struct("attitude_corr", &attitude_correction_rp, sizeof(attitude_correction_rp));
+    g_attitude_correction_rp[1] = -g_attitude.pitchDeg;
+    nvs_save_struct("attitude_corr", &g_attitude_correction_rp, sizeof(g_attitude_correction_rp));
 }
 
 static inline bool is_elrs_armed()
@@ -182,21 +173,21 @@ void load_pid_config()
 
 void save_pwm_config()
 {
-    nvs_save_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
-    nvs_save_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
-    nvs_save_struct("pwm_failsafe", g_failsafe_us, sizeof(g_failsafe_us));
+    nvs_save_struct("pwm_mapping",  g_ouput_mapping,  sizeof(g_ouput_mapping));
+    nvs_save_struct("pwm_invert",   g_invert_channel, sizeof(g_invert_channel));
+    nvs_save_struct("pwm_failsafe", g_failsafe_us,    sizeof(g_failsafe_us));
 }
 
 void load_pwm_config()
 {
-    nvs_load_struct("pwm_mapping", g_ouput_mapping, sizeof(g_ouput_mapping));
-    nvs_load_struct("pwm_invert", g_invert_channel, sizeof(g_invert_channel));
-    nvs_load_struct("pwm_failsafe", g_failsafe_us, sizeof(g_failsafe_us));
+    nvs_load_struct("pwm_mapping",  g_ouput_mapping,  sizeof(g_ouput_mapping));
+    nvs_load_struct("pwm_invert",   g_invert_channel, sizeof(g_invert_channel));
+    nvs_load_struct("pwm_failsafe", g_failsafe_us,    sizeof(g_failsafe_us));
 }
 
 void load_attitude_correction()
 {
-    nvs_load_struct("attitude_corr", &attitude_correction_rp, sizeof(attitude_correction_rp));
+    nvs_load_struct("attitude_corr", &g_attitude_correction_rp, sizeof(g_attitude_correction_rp));
 }
 
 void init_pid_factory()
@@ -211,36 +202,11 @@ void init_pid_factory()
     g_invert_accel[2] = false;
 }
 
-void erase_nvs(void)
-{
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ESP_ERROR_CHECK(nvs_flash_init());
-}
-
 void init_pwm_factory()
 {
-    memcpy(g_ouput_mapping, (int[]){0, 1, 2, 3, 4, 5}, sizeof(g_ouput_mapping));
+    memcpy(g_ouput_mapping,  (int[]){0, 1, 2, 3, 4, 5}, sizeof(g_ouput_mapping));
     memcpy(g_invert_channel, (bool[]){0, 0, 0, 0, 0, 0}, sizeof(g_invert_channel));
-    memcpy(g_failsafe_us, (int[]){1500, 1500, 1000, 1500, 1500, 1500}, sizeof(g_failsafe_us));
-}
-
-static void blink_led(int times, int delay_ms, bool finish_lit)
-{
-    for (int i = 0; i < times; i++)
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 1);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        gpio_set_level(ONBOARD_LED_PIN, 0);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-    }
-    if (finish_lit)
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 0);
-    }
-    else
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 1);
-    }
+    memcpy(g_failsafe_us,    (int[]){1500, 1500, 1000, 1500, 1500, 1500}, sizeof(g_failsafe_us));
 }
 
 void reset_crash(void)
@@ -326,20 +292,11 @@ void actions_task(void *pvParameters)
     }
 }
 
-void test_sequence(const uint32_t *sequence)
-{
-    for (int i = 0; i < NUM_PWM_OUPUTS; i++)
-    {
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(sequence[i]));
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
-    }
-}
-
 static inline uint16_t compute_axis(PID_Config_t *pid, int16_t stick_us, float gyro_value, float gyro_value_low, float master_kp_gain, float master_kd_gain, float dt)
 {
-    float targetRate = mapStickToRate(stick_us, pid->maxRateDegs, 0);
-    float stickInput = nomalise_stick(stick_us);
-    float axis_correction = compute_axis_pid(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kp_gain, pid, 1);
+    float targetRate        = mapStickToRate(stick_us, pid->maxRateDegs, 0);
+    float stickInput        = nomalise_stick(stick_us);
+    float axis_correction   = compute_axis_pid(stickInput, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kd_gain, pid, 1);
     return map_to_pwm(axis_correction);
 }
 
@@ -356,28 +313,37 @@ static void init_attitude(attitude_t *attitude, float ax, float ay, float az)
 }
 #endif
 
-static inline float constrain_angle_deg(float angle)
-{
-    while (angle > 180.0f)
-        angle -= 360.0f;
-    while (angle < -180.0f)
-        angle += 360.0f;
-    return angle;
-}
+inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool shock_detected) {
+    uint32_t pwm_us = 0;
 
-void init_flight_watchdog(void)
-{
-    esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = 5000,         // Timeout de 2 secondes
-        .idle_core_mask = (1 << 0), // Surveille aussi la tâche Idle du Coeur 0
-        .trigger_panic = true       // Forcer la panique/reset en cas de timeout
-    };
+    switch (g_current_state) {
+        
+        case MOTOR_STATE_NORMAL:
+            if (shock_detected) {
+                pwm_us = 1000;
+                g_current_state = MOTOR_STATE_EMERGENCY_CUT;
+            } else {
+                pwm_us = current_throttle_us;
+            }
+            break;
 
-    // Initialisation ou re-configuration du TWDT
-    esp_task_wdt_reconfigure(&twdt_config);
+        case MOTOR_STATE_EMERGENCY_CUT:
+            pwm_us = 1000;
+            
+            if (current_throttle_us < 1020) {
+                g_current_state = MOTOR_STATE_WAIT_THROTTLE_ZERO;
+            }
+            break;
 
-    // Ajouter la tâche courante (ex: la boucle de contrôle) au Watchdog
-    esp_task_wdt_add(NULL);
+        case MOTOR_STATE_WAIT_THROTTLE_ZERO:
+            pwm_us = 1000;
+            
+            if (current_throttle_us > 1025) {
+                g_current_state = MOTOR_STATE_NORMAL;
+            }
+            break;
+    }
+    return pwm_us;
 }
 
 // ==========================================
@@ -404,11 +370,11 @@ void servo_update_task(void *pvParameters)
             .channel = (ledc_channel_t)i,
             .timer_sel = LEDC_TIMER_0,
             .intr_type = LEDC_INTR_DISABLE,
-            .gpio_num = servo_gpios[i],
+            .gpio_num = g_servo_gpios[i],
             .duty = us_to_ledc_duty(1500), // Neutral at boot
             .hpoint = 0};
         ledc_channel_config(&ledc_channel);
-        gpio_set_drive_capability(servo_gpios[i], GPIO_DRIVE_CAP_0);
+        gpio_set_drive_capability(g_servo_gpios[i], GPIO_DRIVE_CAP_0);
     }
 
     static int64_t last_time = 0;
@@ -497,6 +463,10 @@ void servo_update_task(void *pvParameters)
 #endif
         }
 
+        // Gyro Pitch : -up +down
+        // Gyro Roll : -left +right
+        // Gyro Yaw : -right +left
+
         if (gyro_data.valid && rx_data.valid)
         {
             if (g_flightmode == FLIGHTMODE_LEVEL)
@@ -504,11 +474,8 @@ void servo_update_task(void *pvParameters)
 #ifdef LEVEL_MODE_MAHONY
                 mahony_get_euler(&g_attitude);
 #endif
-                // Pitch : -up +down
-                // Roll : -left +right
-                // Yaw : -right +left
-                float attitude_pitch = g_attitude.pitchDeg + attitude_correction_rp[1];
-                float attitude_roll = g_attitude.rollDeg + attitude_correction_rp[0];
+                const float attitude_pitch = g_attitude.pitchDeg + g_attitude_correction_rp[1];
+                const float attitude_roll = g_attitude.rollDeg + g_attitude_correction_rp[0];
 
                 float stickInputRoll = nomalise_stick(rx_data.us_values[CHANNEL_AILERON]);
                 float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
@@ -537,8 +504,8 @@ void servo_update_task(void *pvParameters)
 #ifdef LEVEL_MODE_MAHONY
             mahony_get_euler(&g_attitude);
 #endif
-            float attitude_pitch = g_attitude.pitchDeg + attitude_correction_rp[1];
-            float attitude_roll = g_attitude.rollDeg + attitude_correction_rp[0];
+            const float attitude_pitch = g_attitude.pitchDeg + g_attitude_correction_rp[1];
+            const float attitude_roll = g_attitude.rollDeg + g_attitude_correction_rp[0];
             // Failsafe mode: no RX data, but gyro is valid. Try to keep plane flat and turning
             float targetAngleRoll = 20.f;
             float targetRateRoll = 4.0f * (targetAngleRoll - attitude_roll);
@@ -556,6 +523,12 @@ void servo_update_task(void *pvParameters)
             rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
             gyro_failsafe = true;
         }
+
+        // 4g shock detection, if something is hit, cut the motor to avoid further damage
+        const float az = gyro_data.raw_az * 0.7f; // decrease Z axis sensitivity to avoid false positives on landing
+        const float shock_factor = gyro_data.raw_ax * gyro_data.raw_ax + gyro_data.raw_ay * gyro_data.raw_ay + az * az;
+        const bool shock_detected = shock_factor > (g_crash_g_threshold*g_crash_g_threshold);
+        rx_data.us_values[CHANNEL_THROTTLE] = process_motor_safety(rx_data.us_values[CHANNEL_THROTTLE], shock_detected);
 
         if ((esp_timer_get_time() - servo_timer) > 20000)
         {
@@ -621,14 +594,14 @@ void app_main(void)
     load_pwm_config();
     load_attitude_correction();
 
-    // Init semaphore
+    // Init semaphores
     crsf_init();
     gyro_init();
 
     xTaskCreate(actions_task,         "action_task", 8192, NULL, 5, &actions_task_handle);
-    xTaskCreate(crsf_rx_task,         "crsf_rx", 2048, NULL, 15, &crsf_task_handle);
+    xTaskCreate(crsf_rx_task,         "crsf_rx", 2048, NULL, 15,    &crsf_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl", 4096, NULL, 20, &servo_task_handle);
-    xTaskCreate(gyro_supervisor_task, "gyro_sv", 2048, NULL, 21, &gyro_sv_task_handle);
+    xTaskCreate(gyro_supervisor_task, "gyro_sv", 2048, NULL, 21, &  gyro_sv_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)

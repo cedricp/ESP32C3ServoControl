@@ -23,21 +23,23 @@ static esp_netif_t *esp_netif_handle = NULL;
 
 #define WIFI_SSID "ESP_FLIGHT_CON"
 
-extern attitude_t g_attitude;
-extern int g_master_kp_gain_channel;
-extern int g_master_kd_gain_channel;
-extern int g_flightmode;
-extern int g_flightmode_channel;
-extern int g_ouput_mapping[NUM_PWM_OUPUTS];
-extern uint32_t g_failsafe_us[NUM_PWM_OUPUTS];
-extern bool g_invert_channel[NUM_PWM_OUPUTS];
-extern uint8_t g_crash_reasons[4];
-extern float attitude_correction_rp[2];
-extern bool g_invert_accel[3];
+extern attitude_t   g_attitude;
+extern int          g_master_kp_gain_channel;
+extern int          g_master_kd_gain_channel;
+extern int          g_flightmode;
+extern int          g_flightmode_channel;
+extern int          g_ouput_mapping[NUM_PWM_OUPUTS];
+extern uint32_t     g_failsafe_us[NUM_PWM_OUPUTS];
+extern bool         g_invert_channel[NUM_PWM_OUPUTS];
+extern uint8_t      g_crash_reasons[4];
+extern float        g_attitude_correction_rp[2];
+extern bool         g_invert_accel[3];
+extern float        g_crash_g_threshold;
 
 extern PID_Config_t *get_pid_roll(void);
 extern PID_Config_t *get_pid_pitch(void);
 extern PID_Config_t *get_pid_yaw(void);
+
 extern void gyro_calib(void);
 extern void init_pid_factory(void);
 extern void init_pwm_factory(void);
@@ -175,6 +177,10 @@ esp_err_t config_post_handler(httpd_req_t *req)
     item = cJSON_GetObjectItem(json, "invertaz");
     if (item)
         g_invert_accel[2] = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "crash_threshold");
+    if (item)
+        g_crash_g_threshold = item->valuedouble * item->valuedouble;
 
     cJSON_Delete(json);
 
@@ -386,6 +392,8 @@ esp_err_t config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(json, "invertay", g_invert_accel[1]);
     cJSON_AddBoolToObject(json, "invertaz", g_invert_accel[2]);
 
+    cJSON_AddNumberToObject(json, "crash_threshold", sqrtf(g_crash_g_threshold));
+
     // 3. Conversion de l'objet JSON en chaîne de caractères (non formatée = plus compacte)
     char *json_str = cJSON_PrintUnformatted(json);
     if (json_str == NULL)
@@ -462,8 +470,8 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
     cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg + attitude_correction_rp[0]);
-    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + attitude_correction_rp[1]);
+    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg + g_attitude_correction_rp[0]);
+    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + g_attitude_correction_rp[1]);
 
     const char *json_response = cJSON_PrintUnformatted(root);
 

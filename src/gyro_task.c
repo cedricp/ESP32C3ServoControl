@@ -302,13 +302,13 @@ void gyro_control_task(void *pvParameters)
     gyro_data.ay = 0.0f;
     gyro_data.az = 0.0f;
 
-    initPT1Filter(&filterGyroRoll, GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, GYRO_DT);
     initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroYaw, GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
 
-    initPT1Filter(&filterGyroRoll_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
     initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroYaw_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
 
     if (nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK)
     {
@@ -386,7 +386,7 @@ void gyro_control_task(void *pvParameters)
             local_gyro_data.raw_az    = g_invert_accel[2] ? -rawAz : rawAz;
             local_gyro_data.az        = g_invert_accel[2] ? -cleanAz : cleanAz;
 
-            local_gyro_data.valid = valid;
+            local_gyro_data.valid     = valid;
 
             if (xSemaphoreTake(g_gyro_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
             {
@@ -409,7 +409,7 @@ void gyro_control_task(void *pvParameters)
 void mpu_off()
 {
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << I2C_SCL_PIN) | (1ULL << I2C_SDA_PIN) | (1ULL << I2C_POWER_PIN),
+        .pin_bit_mask = (1ULL << I2C_SCL_PIN) | (1ULL << I2C_SDA_PIN),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -430,6 +430,12 @@ void mpu_off()
 
 static void mpu_on()
 {
+    gpio_set_level(I2C_POWER_PIN, 1);
+}
+
+void gyro_supervisor_task(void *pvParameters) {
+    // Use GPIO pin 4 to power the MPU6500 so it can be reset in case of I2C bus lockup
+    // Very paranoid scenario, but hey, we don't want to crash !
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << I2C_POWER_PIN),
         .mode = GPIO_MODE_OUTPUT,
@@ -440,10 +446,6 @@ static void mpu_on()
 
     gpio_config(&io_conf);
 
-    gpio_set_level(I2C_POWER_PIN, 1);
-}
-
-void gyro_supervisor_task(void *pvParameters) {
     last_heartbeat = xTaskGetTickCount();
     mpu_on();
     

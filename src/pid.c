@@ -12,10 +12,13 @@
 #define MAHONY_KP 0.5f
 #define MAHONY_KI 0.0f
 
-float nomalise_stick(uint16_t pulse_us)
+typedef struct
 {
-    return ((float)pulse_us - 1500.0f) / 500.0f;
-}
+    float q0, q1, q2, q3;
+    float ix, iy, iz; // integral error accumulators
+} MahonyFilter;
+
+static MahonyFilter mahony = {.q0 = 1.0f, .q1 = 0.0f, .q2 = 0.0f, .q3 = 0.0f, .ix = 0.0f, .iy = 0.0f, .iz = 0.0f};
 
 /**
  * @brief Compute the PID correction for a given axis based on stick input, target rate, measured rate, and PID configuration.
@@ -137,21 +140,31 @@ IRAM_ATTR void compute_attitude(attitude_t *attitude, float ax, float ay, float 
     if (dt <= 0.00001f)
         return;
 
-    float accelNorm     = fast_sqrtf(ay * ay + az * az);
-    float accelRoll     = fast_atan2f(ay, az) * RAD_TO_DEG;
-    float accelPitch    = (accelNorm > 0.001f) ? fast_atan2f(-ax, accelNorm) * RAD_TO_DEG : attitude->pitchDeg;
+    // 1. Total accel norm squared (to check if it's within 1g ± 0.2g)
+    float totalAccelNorm = ax * ax + ay * ay + az * az;
+    
+    // 2. Gyro integration to estimate roll and pitch angles
+    float gyroRoll  = attitude->rollDeg + gyroRollDegS * dt;
+    float gyroPitch = attitude->pitchDeg + gyroPitchDegS * dt;
 
-    attitude->rollDeg   = ALPHA * (attitude->rollDeg + gyroRollDegS * dt) + (1.0f - ALPHA) * accelRoll;
-    attitude->pitchDeg  = ALPHA * (attitude->pitchDeg + gyroPitchDegS * dt) + (1.0f - ALPHA) * accelPitch;
+    // 3. Check if accelerometer readings are within 1g ± 0.2g (0.8^2 = 0.64, 1.2^2 = 1.44)
+    if (totalAccelNorm >= 0.64f && totalAccelNorm <= 1.44f) 
+    {
+        float accelNormYZ = fast_sqrtf(ay * ay + az * az);
+        float accelRoll    = fast_atan2f(ay, az) * RAD_TO_DEG;
+        float accelPitch   = (accelNormYZ > 0.001f) ? fast_atan2f(-ax, accelNormYZ) * RAD_TO_DEG : attitude->pitchDeg;
+
+        // Adaptative fusion of gyro and accelerometer data using complementary filter
+        attitude->rollDeg  = ALPHA * gyroRoll + (1.0f - ALPHA) * accelRoll;
+        attitude->pitchDeg = ALPHA * gyroPitch + (1.0f - ALPHA) * accelPitch;
+    } 
+    else 
+    {
+        // Outside of valid accel range, rely solely on gyro integration
+        attitude->rollDeg  = gyroRoll;
+        attitude->pitchDeg = gyroPitch;
+    }
 }
-
-typedef struct
-{
-    float q0, q1, q2, q3;
-    float ix, iy, iz; // integral error accumulators
-} MahonyFilter;
-
-static MahonyFilter mahony = {.q0 = 1.0f, .q1 = 0.0f, .q2 = 0.0f, .q3 = 0.0f, .ix = 0.0f, .iy = 0.0f, .iz = 0.0f};
 
 /*
  * @brief  Compute the attitude using a Mahony filter with new sensor readings.

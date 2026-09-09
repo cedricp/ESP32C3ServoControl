@@ -18,7 +18,11 @@ typedef struct  {
 
 float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float master_kp_ain, float master_kp_gain, PID_Config_t* pid, char useStickFactor);
 float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us);
-float nomalise_stick(uint16_t pulse_us);
 void compute_attitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt);
 void mahony_get_euler(attitude_t* attidude);
 void mahony_update(float gx, float gy, float gz, float ax, float ay, float az, float dt);
+
+inline float nomalise_stick(uint16_t pulse_us)
+{
+    return ((float)pulse_us - 1500.0f) / 500.0f;
+}
