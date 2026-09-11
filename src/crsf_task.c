@@ -21,7 +21,8 @@ servo_data_t g_servo_data;
 
 IRAM_ATTR void get_servo_data(servo_data_t *data)
 {
-    if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) 
+    {
         *data = g_servo_data;
         xSemaphoreGive(g_crsf_mutex);
     }

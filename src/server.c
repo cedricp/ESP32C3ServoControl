@@ -186,8 +186,6 @@ esp_err_t config_post_handler(httpd_req_t *req)
 
     save_pid_config();
 
-    load_pid_config();
-
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }

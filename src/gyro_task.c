@@ -289,6 +289,8 @@ void i2c_recovery()
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
+#define HEARTBEAT last_heartbeat = xTaskGetTickCount();
+
 void gyro_control_task(void *pvParameters)
 {
     last_heartbeat = xTaskGetTickCount();
@@ -318,29 +320,19 @@ void gyro_control_task(void *pvParameters)
 
     // Check I2C bus and recover if needed
     check_i2c(I2C_SDA_PIN, I2C_SCL_PIN);
-    last_heartbeat = xTaskGetTickCount();
+    HEARTBEAT
     vTaskDelay(pdMS_TO_TICKS(50));
-    last_heartbeat = xTaskGetTickCount();
+    HEARTBEAT
 
     mpu_init();
     mpu_configure();
     init_mpu_interrupt();
-
-    last_heartbeat = xTaskGetTickCount();
-
-    uint32_t drop_count = 0;
-    uint64_t timer = esp_timer_get_time();
+    HEARTBEAT
 
     while (1)
     {
         // Blocking wait for notification from ISR
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
-        // counter++;
-        // if (esp_timer_get_time() - timer > 1000000) {
-        //     ESP_LOGI("MPU", "Gyro loop : %lu", counter);
-        //     timer = esp_timer_get_time();
-        //     counter = 0;
-        // }
         if (ulNotificationValue > 0)
         {
             // DRDY Interrup ! Direct read and process the data
@@ -366,7 +358,7 @@ void gyro_control_task(void *pvParameters)
                 filter_accelerometer(rawAx, rawAy, rawAz, &cleanAx, &cleanAy, &cleanAz);
 
                 valid = true;
-                last_heartbeat = xTaskGetTickCount();
+                HEARTBEAT
             } 
 
             gyro_data_t local_gyro_data;
@@ -396,13 +388,6 @@ void gyro_control_task(void *pvParameters)
 
             xTaskNotify(servo_task_handle, EVENT_GYRO_VALID, eSetBits);
         }
-
-        // if (drop_count > 0 && (esp_timer_get_time() - timer) > 5000000)
-        // {
-        //     //ESP_LOGW("MPU", "Dropped %lu gyro data samples due to queue overflow.", drop_count);
-        //     drop_count = 0;
-        //     timer = esp_timer_get_time();
-        // }
     }
 }
 
@@ -410,10 +395,10 @@ void mpu_off()
 {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << I2C_SCL_PIN) | (1ULL << I2C_SDA_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .mode           = GPIO_MODE_OUTPUT,
+        .pull_up_en     = GPIO_PULLUP_DISABLE,
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE,
     };
 
     if (i2c_mpu_bus_handle != NULL){
@@ -437,16 +422,16 @@ void gyro_supervisor_task(void *pvParameters) {
     // Use GPIO pin 4 to power the MPU6500 so it can be reset in case of I2C bus lockup
     // Very paranoid scenario, but hey, we don't want to crash !
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << I2C_POWER_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask   = (1ULL << I2C_POWER_PIN),
+        .mode           = GPIO_MODE_OUTPUT,
+        .pull_up_en     = GPIO_PULLUP_DISABLE,
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE,
     };
 
     gpio_config(&io_conf);
 
-    last_heartbeat = xTaskGetTickCount();
+    HEARTBEAT
     mpu_on();
     
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 20, &gyro_task_handle);
