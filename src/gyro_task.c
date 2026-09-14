@@ -14,14 +14,11 @@
 #include "esp_task_wdt.h"
 #include "pid.h"
 #include "utils.h"
+#include "config.h"
 
 // #define GYRO_1KHZ
 
 #define MPU_ADDR 0x68
-#define I2C_SDA_PIN GPIO_NUM_20
-#define I2C_SCL_PIN GPIO_NUM_21
-#define I2C_INT_PIN GPIO_NUM_1
-#define I2C_POWER_PIN GPIO_NUM_4
 #define I2C_FREQ_HZ 400000
 
 #define REG_PWR_MGMT_1 0x6B
@@ -82,7 +79,7 @@ static FilterPT1 filterGyroRoll_low;
 static FilterPT1 filterGyroPitch_low;
 static FilterPT1 filterGyroYaw_low;
 
-static void mpu_init(void)
+static void mpu_i2c_init(void)
 {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = I2C_NUM_0,
@@ -270,23 +267,18 @@ void gyro_calib(void)
 void gyro_init()
 {
     g_gyro_mutex = xSemaphoreCreateMutex();
-}
 
-void i2c_recovery()
-{
-    ESP_LOGE("MPU", "I2C / DRDY Lockup detected, trying to recover...");
-    
-    // 1. Supprimer le driver I2C temporairement
-    i2c_del_master_bus(i2c_mpu_bus_handle);
+    // Use GPIO pin 4 to power the MPU6500 so it can be reset in case of I2C bus lockup
+    // Very paranoid scenario, but hey, we don't want to crash !
+    gpio_config_t io_conf = {
+        .pin_bit_mask   = (1ULL << I2C_POWER_PIN),
+        .mode           = GPIO_MODE_OUTPUT,
+        .pull_up_en     = GPIO_PULLUP_DISABLE,
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE,
+    };
 
-    // 2. Lancer la procédure de debrayage manuel I2C (Bus recovery)
-    check_i2c(I2C_SDA_PIN, I2C_SCL_PIN);
-
-    // 3. Ré-initialiser et ré-configurer le MPU6500
-    mpu_init();
-    mpu_configure();
-    
-    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_config(&io_conf);
 }
 
 #define HEARTBEAT last_heartbeat = xTaskGetTickCount();
@@ -324,7 +316,7 @@ void gyro_control_task(void *pvParameters)
     vTaskDelay(pdMS_TO_TICKS(50));
     HEARTBEAT
 
-    mpu_init();
+    mpu_i2c_init();
     mpu_configure();
     init_mpu_interrupt();
     HEARTBEAT
@@ -419,18 +411,6 @@ static void mpu_on()
 }
 
 void gyro_supervisor_task(void *pvParameters) {
-    // Use GPIO pin 4 to power the MPU6500 so it can be reset in case of I2C bus lockup
-    // Very paranoid scenario, but hey, we don't want to crash !
-    gpio_config_t io_conf = {
-        .pin_bit_mask   = (1ULL << I2C_POWER_PIN),
-        .mode           = GPIO_MODE_OUTPUT,
-        .pull_up_en     = GPIO_PULLUP_DISABLE,
-        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
-        .intr_type      = GPIO_INTR_DISABLE,
-    };
-
-    gpio_config(&io_conf);
-
     HEARTBEAT
     mpu_on();
     

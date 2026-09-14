@@ -116,11 +116,12 @@ void check_i2c(int gpio_sda, int gpio_scl)
 
 esp_err_t nvs_save_struct(const char *key, const void *data, size_t size)
 {
-    nvs_handle_t handle;
+    nvs_handle_t handle = 0;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK)
     {
-        ESP_LOGE("NVS", "Error opening NVS namespace for save '%s'\n", NVS_NAMESPACE);
+        ESP_LOGE("NVS", "Error opening NVS namespace for save '%s' [%s]", NVS_NAMESPACE, esp_err_to_name(err));
+        return err;
     }
 
     // Écriture du bloc mémoire brut (BLOB)
@@ -131,7 +132,7 @@ esp_err_t nvs_save_struct(const char *key, const void *data, size_t size)
     }
     else
     {
-        ESP_LOGE("NVS", "Failed to write key %s", key);
+        ESP_LOGE("NVS", "Failed to write key %s [%s]", key, esp_err_to_name(err));
     }
 
     nvs_close(handle);
@@ -141,11 +142,12 @@ esp_err_t nvs_save_struct(const char *key, const void *data, size_t size)
 // --- CHARGER UNE STRUCTURE DEPUIS LA NVS ---
 esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
 {
-    nvs_handle_t handle;
+    nvs_handle_t handle = 0;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK)
     {
-        ESP_LOGE("NVS", "Error opening NVS namespace for load '%s'\n", NVS_NAMESPACE);
+        ESP_LOGE("NVS", "Error opening NVS namespace for load '%s' [%s]", NVS_NAMESPACE, esp_err_to_name(err));
+        return err;
     }
 
     size_t required_size = size;

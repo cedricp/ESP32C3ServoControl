@@ -274,11 +274,12 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_ouput_mapping[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel4");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_ouput_mapping[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel5");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 5)
         g_ouput_mapping[5] = item->valueint;
+
 
     item = cJSON_GetObjectItem(json, "invert0");
     if (item)
@@ -293,10 +294,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_invert_channel[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert4");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_invert_channel[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert5");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 5)
         g_invert_channel[5] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "failsafe0");
@@ -312,10 +313,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_failsafe_us[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe4");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_failsafe_us[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe5");
-    if (item)
+    if (item && NUM_PWM_OUPUTS > 5)
         g_failsafe_us[5] = item->valueint;
 
     cJSON_Delete(json);
@@ -369,22 +370,28 @@ esp_err_t config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(json, "channel1", g_ouput_mapping[1]);
     cJSON_AddNumberToObject(json, "channel2", g_ouput_mapping[2]);
     cJSON_AddNumberToObject(json, "channel3", g_ouput_mapping[3]);
-    cJSON_AddNumberToObject(json, "channel4", g_ouput_mapping[4]);
-    cJSON_AddNumberToObject(json, "channel5", g_ouput_mapping[5]);
+    if (NUM_PWM_OUPUTS > 3)
+        cJSON_AddNumberToObject(json, "channel4", g_ouput_mapping[4]);
+    if (NUM_PWM_OUPUTS > 4)
+        cJSON_AddNumberToObject(json, "channel5", g_ouput_mapping[5]);
 
     cJSON_AddNumberToObject(json, "failsafe0", g_failsafe_us[0]);
     cJSON_AddNumberToObject(json, "failsafe1", g_failsafe_us[1]);
     cJSON_AddNumberToObject(json, "failsafe2", g_failsafe_us[2]);
     cJSON_AddNumberToObject(json, "failsafe3", g_failsafe_us[3]);
-    cJSON_AddNumberToObject(json, "failsafe4", g_failsafe_us[4]);
-    cJSON_AddNumberToObject(json, "failsafe5", g_failsafe_us[5]);
+    if (NUM_PWM_OUPUTS > 3)
+        cJSON_AddNumberToObject(json, "failsafe4", g_failsafe_us[4]);
+    if (NUM_PWM_OUPUTS > 4)
+        cJSON_AddNumberToObject(json, "failsafe5", g_failsafe_us[5]);
 
     cJSON_AddBoolToObject(json, "invert_channel0", g_invert_channel[0]);
     cJSON_AddBoolToObject(json, "invert_channel1", g_invert_channel[1]);
     cJSON_AddBoolToObject(json, "invert_channel2", g_invert_channel[2]);
     cJSON_AddBoolToObject(json, "invert_channel3", g_invert_channel[3]);
-    cJSON_AddBoolToObject(json, "invert_channel4", g_invert_channel[4]);
-    cJSON_AddBoolToObject(json, "invert_channel5", g_invert_channel[5]);
+    if (NUM_PWM_OUPUTS > 4)
+        cJSON_AddBoolToObject(json, "invert_channel4", g_invert_channel[4]);
+    if (NUM_PWM_OUPUTS > 5)
+        cJSON_AddBoolToObject(json, "invert_channel5", g_invert_channel[5]);
 
     cJSON_AddBoolToObject(json, "invertax", g_invert_accel[0]);
     cJSON_AddBoolToObject(json, "invertay", g_invert_accel[1]);

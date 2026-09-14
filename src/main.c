@@ -21,6 +21,9 @@
 
 #include "pid.h"
 
+#include "power.h"
+#include "gps.h"
+
 // #define DEBUG_GYRO 1
 // #define DEBUG_STACK 1
 // #define LEVEL_MODE_MAHONY 1
@@ -40,7 +43,7 @@ PID_Config_t g_pid_roll;
 PID_Config_t g_pid_pitch;
 PID_Config_t g_pid_yaw;
 
-const int   g_servo_gpios[NUM_PWM_OUPUTS] = {5, 6, 7, 10, 2, 0};
+const int   g_servo_gpios[NUM_PWM_OUPUTS] = PWM_OUTPUT_PINS;
 float       g_attitude_correction_rp[2] = {0.f, 0.f};
 uint8_t     g_crash_reasons[4] = {0, 0, 0, 0};
 attitude_t  g_attitude;
@@ -58,9 +61,13 @@ float       g_crash_g_threshold = 16.f;
 motor_safety_state_t g_current_state = MOTOR_STATE_NORMAL;
 
 TaskHandle_t servo_task_handle = NULL;
-TaskHandle_t crsf_task_handle = NULL;
+TaskHandle_t crsf_rx_task_handle = NULL;
+TaskHandle_t crsf_tx_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
+TaskHandle_t power_task_handle = NULL;
+TaskHandle_t gps_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle = NULL;
+
 
 PID_Config_t *get_pid_roll(void)
 {
@@ -228,16 +235,6 @@ void reset_crash(void)
 // ==========================================
 void actions_task(void *pvParameters)
 {
-    // Configure the input pullup
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << PAIRING_BUTTON_PIN),
-        .mode         = GPIO_MODE_INPUT,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE
-    };
-    gpio_config(&io_conf);
-
     gpio_config_t io_conf2 = {
         .pin_bit_mask   = (1ULL << ONBOARD_LED_PIN),
         .mode           = GPIO_MODE_OUTPUT, // Set as output
@@ -353,15 +350,9 @@ inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool s
     return pwm_us;
 }
 
-// ==========================================
-// Servo managemenent task
-// ==========================================
-void servo_update_task(void *pvParameters)
+static void servo_pwm_init()
 {
-    servo_data_t rx_data;
-    gyro_data_t gyro_data;
-    bool radio_init = false;
-
+    // Init ledc timer for servos PWM generation
     ledc_timer_config_t ledc_timer = 
     {
         .speed_mode      = LEDC_LOW_SPEED_MODE,
@@ -385,8 +376,18 @@ void servo_update_task(void *pvParameters)
             .hpoint         = 0
         };
         ledc_channel_config(&ledc_channel);
-        gpio_set_drive_capability(g_servo_gpios[i], GPIO_DRIVE_CAP_0);
+        gpio_set_drive_capability(g_servo_gpios[i], GPIO_DRIVE_CAP_2);
     }
+}
+
+// ==========================================
+// Servo managemenent task
+// ==========================================
+void servo_update_task(void *pvParameters)
+{
+    servo_data_t rx_data;
+    gyro_data_t gyro_data;
+    bool radio_init = false;
 
     static int64_t last_time = 0;
     int64_t servo_timer = esp_timer_get_time();
@@ -604,13 +605,19 @@ void app_main(void)
     load_attitude_correction();
 
     // Init semaphores
+    power_init();
+    gps_init();
     crsf_init();
     gyro_init();
+    servo_pwm_init();
 
     xTaskCreate(actions_task,         "action_task", 8192, NULL, 5,  &actions_task_handle);
-    xTaskCreate(crsf_rx_task,         "crsf_rx",     2048, NULL, 15, &crsf_task_handle);
+    xTaskCreate(crsf_task_rx,         "crsf_rx",     2048, NULL, 15, &crsf_rx_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl",  4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_supervisor_task, "gyro_sv",     2048, NULL, 21, &gyro_sv_task_handle);
+    xTaskCreate(power_task,           "power_task",  4096, NULL, 10, &power_task_handle);
+    xTaskCreate(gps_task,             "gps_task",    4096, NULL, 10, &gps_task_handle);
+    xTaskCreate(crsf_task_tx,         "crsf_tx",     2048, NULL, 10, &crsf_tx_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)

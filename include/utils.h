@@ -4,15 +4,11 @@
 #include <math.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "config.h"
+
 
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
-
-#define NUM_PWM_OUPUTS 6
-#define NUM_CRSF_CHANNELS 8
-
-#define ONBOARD_LED_PIN 8
-#define PAIRING_BUTTON_PIN 9
 
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
