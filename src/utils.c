@@ -168,22 +168,3 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
 
     return err;
 }
-
-void blink_led(int times, int delay_ms, bool finish_lit)
-{
-    for (int i = 0; i < times; i++)
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 1);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        gpio_set_level(ONBOARD_LED_PIN, 0);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-    }
-    if (finish_lit)
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 0);
-    }
-    else
-    {
-        gpio_set_level(ONBOARD_LED_PIN, 1);
-    }
-}

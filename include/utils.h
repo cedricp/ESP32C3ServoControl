@@ -167,5 +167,3 @@ inline uint16_t __attribute__((always_inline)) map_to_pwm(float x)
 {
     return (uint16_t)((x + 1.0f) * 500.0f + 1000.0f);
 }
-
-void blink_led(int times, int delay_ms, bool finish_lit);

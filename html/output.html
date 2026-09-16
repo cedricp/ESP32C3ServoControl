@@ -191,7 +191,7 @@
                 <h2>PWM Output 1</h2>
                 <div class="control-group">
                     <div class="control-label">
-                        <span>Channel 0 output mapping</span>
+                        <span>Channel 1 output mapping</span>
                     </div>
                     
                     <select id="channel0" class="select-input">
@@ -225,7 +225,7 @@
                 <h2>PWM Output 2</h2>
                 <div class="control-group">
                     <div class="control-label">
-                        <span>Channel 1 output mapping</span>
+                        <span>Channel 2 output mapping</span>
                     </div>
                     
                     <select id="channel1" class="select-input">
@@ -259,7 +259,7 @@
                 <h2>PWM Output 3</h2>
                 <div class="control-group">
                     <div class="control-label">
-                        <span>Channel 2 output mapping</span>
+                        <span>Channel 3 output mapping</span>
                     </div>
                     
                     <select id="channel2" class="select-input">
@@ -293,7 +293,41 @@
                 <h2>PWM Output 4</h2>
                 <div class="control-group">
                     <div class="control-label">
-                        <span>Channel 3 output mapping</span>
+                        <span>Channel 4 output mapping</span>
+                    </div>
+                    
+                    <select id="channel3" class="select-input">
+                        <option value="0">Channel 1(Aileron)</option>
+                        <option value="1">Channel 2(Elevator)</option>
+                        <option value="2">Channel 3(Throttle)</option>
+                        <option value="3">Channel 4(Rudder)</option>
+                        <option value="4">Channel 5(Armed)</option>
+                        <option value="5">Channel 6</option>
+                        <option value="6">Channel 7</option>
+                        <option value="7">Channel 8</option>
+                    </select>
+                    
+                    <div class="control-group checkbox-group">
+                        <label for="invert_channel3" class="checkbox-label">
+                            <span>Invert output</span>
+                            <input type="checkbox" id="invert_channel3">
+                        </label>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label"><span>Failsafe value</span><span class="val" id="failsafe3_v">1500</span></div>
+                        <input type="range" id="failsafe3" min="1000" max="2000" step="5" value="1500">
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <form id="Channel4">   
+            <div class="card">
+                <h2>PWM Output 5</h2>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Channel 5 output mapping</span>
                     </div>
                     
                     <select id="channel3" class="select-input">

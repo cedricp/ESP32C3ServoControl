@@ -12,7 +12,7 @@ QueueHandle_t gps_queue;
 
 ubx_nav_pvt_t g_pvt_data;
 
-void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
+inline void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
     *CK_A = *CK_A + cb;
     *CK_B = *CK_B + *CK_A;
 }
@@ -34,12 +34,14 @@ static void gps_set_rate(uint16_t rate_ms) {
 
     // Calcul du checksum UBX sur la classe, l'ID, la longueur et le payload (du byte 2 au byte 11)
     uint8_t CK_A = 0, CK_B = 0;
-    for (int i = 2; i < 12; i++) {
+    for (int i = 2; i < 10; i++) {
         update_checksum(cfg_rate_msg[i], &CK_A, &CK_B);
     }
 
     cfg_rate_msg[12] = CK_A;
     cfg_rate_msg[13] = CK_B;
+
+    uart_wait_tx_done(GPS_UART_PORT, pdMS_TO_TICKS(100));
 
     // Envoi de la commande de configuration via l'UART
     uart_write_bytes(GPS_UART_PORT, (const char *)cfg_rate_msg, sizeof(cfg_rate_msg));
@@ -47,7 +49,6 @@ static void gps_set_rate(uint16_t rate_ms) {
 
 void gps_task(void *pvParameters) {
     
-    bool led_state = false;
     uint8_t byte;
     int state = 0;
     uint8_t msg_class = 0, msg_id = 0;
@@ -58,8 +59,6 @@ void gps_task(void *pvParameters) {
     uint8_t *pvt_ptr = (uint8_t *)&pvt_data;
     uint8_t CK_A = 0, CK_B = 0;
     uint8_t rec_CK_A = 0, rec_CK_B = 0;
-
-    // gps_set_rate(100);
 
     // Read UBlox binary data from GPS
     while (1) {
@@ -122,7 +121,6 @@ void gps_task(void *pvParameters) {
                     
                     // Checksum validation
                     if (CK_A == rec_CK_A && CK_B == rec_CK_B) {
-                        led_state = !led_state;
                         if (pvt_data.fixType >= 3) {
                             xQueueSend(gps_queue, &pvt_data, 0);
                             memcpy(&g_pvt_data, &pvt_data, sizeof(ubx_nav_pvt_t));
@@ -141,6 +139,7 @@ void gps_init()
 {
     gps_queue = xQueueCreate(1, sizeof(ubx_nav_pvt_t));
     
+    uart_driver_install(GPS_UART_PORT, 1024, 256, 0, NULL, 0);
     // Init UART for GPS reception
     uart_config_t uart_config = {
         .baud_rate = GPS_BAUD_RATE,
@@ -149,8 +148,9 @@ void gps_init()
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
-
+    
     uart_param_config(GPS_UART_PORT, &uart_config);
     uart_set_pin(GPS_UART_PORT, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(GPS_UART_PORT, 1024, 0, 0, NULL, 0);
+
+    // gps_set_rate(2000);
 }

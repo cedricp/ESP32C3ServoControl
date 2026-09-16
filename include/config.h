@@ -16,12 +16,9 @@
 #define GPS_RX_PIN         GPIO_NUM_5
 #define GPS_BAUD_RATE      115200
 
-// Board configuration
-#define ONBOARD_LED_PIN     GPIO_NUM_8
-
 // PWM configuration
-#define NUM_PWM_OUPUTS      4
-#define PWM_OUTPUT_PINS     {GPIO_NUM_6, GPIO_NUM_7, GPIO_NUM_9, GPIO_NUM_10}
+#define NUM_PWM_OUPUTS      5
+#define PWM_OUTPUT_PINS     GPIO_NUM_6, GPIO_NUM_7, GPIO_NUM_8, GPIO_NUM_9, GPIO_NUM_10
 
 // I2C configuration for MPU6500
 #define I2C_SDA_PIN         GPIO_NUM_20
@@ -31,3 +28,7 @@
 
 // Voltmeter configuration (GPIO_NUM_0 is ADC1 channel 0)
 #define ADC_VOLTMETER_PIN   ADC_CHANNEL_0
+
+// ESC Software serial RX pin
+#define ESC_SWS_RX_GPIO     GPIO_NUM_0
+#define ESC_BITRATE         115200

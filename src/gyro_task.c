@@ -147,7 +147,6 @@ static inline void filter_accelerometer(float ax_raw, float ay_raw, float az_raw
 
 IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
 {
-    static bool pinled_state = false;
     uint8_t buffer[14];
     uint8_t reg = REG_ACCEL_XOUT_H;
 
@@ -156,8 +155,6 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
         i2c_mpu_dev_handle, &reg, 1, buffer, sizeof(buffer), I2C_TIMEOUT_MS);
     if (ret != ESP_OK)
     {
-        gpio_set_level(ONBOARD_LED_PIN, pinled_state);
-        pinled_state = !pinled_state;
         return ret;
     }
     int16_t gx = (int16_t)(buffer[8] << 8) | buffer[9];

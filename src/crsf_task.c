@@ -68,6 +68,8 @@ void crsf_init()
 {
     g_crsf_mutex = xSemaphoreCreateMutex();
 
+    uart_driver_install(CRSF_UART_PORT, 1024, 512, 0, NULL, 0);
+    
     // Init UART for CRSF reception
     uart_config_t uart_config = {
         .baud_rate  = CRSF_BAUD_RATE,
@@ -78,7 +80,6 @@ void crsf_init()
 
     uart_param_config(CRSF_UART_PORT, &uart_config);
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
-    uart_driver_install(CRSF_UART_PORT, 1024, 512, 0, NULL, 0);
 }
 
 // ==========================================

@@ -9,6 +9,7 @@ typedef enum
     CRSF_FRAMETYPE_BATTERY_SENSOR       = 0x08,
     CRSF_FRAMETYPE_BARO_ALTITUDE        = 0x09,
     CRSF_FRAMETYPE_HEARTBEAT            = 0x0B,  //no need to support? (rev07)
+    CRSF_FRAMETYPE_TEMP                 = 0x0d,
     CRSF_FRAMETYPE_CELLS_SENSOR         = 0x0e,
     CRSF_FRAMETYPE_VIDEO_TRANSMITTER    = 0x0F,  //no need to support? (rev07)
     CRSF_FRAMETYPE_LINK_STATISTICS      = 0x14,
