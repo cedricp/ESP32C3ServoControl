@@ -18,26 +18,26 @@
 
 // #define GYRO_1KHZ
 
-#define MPU_ADDR 0x68
+#define MPU_ADDR    0x68
 #define I2C_FREQ_HZ 400000
 
-#define REG_PWR_MGMT_1 0x6B
+#define REG_PWR_MGMT_1  0x6B
 #define REG_GYRO_CONFIG 0x1B
-#define REG_CONFIG 0x1A // DLPF
-#define REG_SMPLRT_DIV 0x19
+#define REG_CONFIG      0x1A // DLPF
+#define REG_SMPLRT_DIV  0x19
 #define REG_GYRO_XOUT_H 0x43
-#define REG_INT_ENABLE 0x38
-#define REG_INT_CFG 0x37
-#define REG_ACCEL_CONFIG_2 0x1D
+#define REG_INT_ENABLE  0x38
+#define REG_INT_CFG     0x37
+#define REG_ACC_CONFIG2 0x1D
 
 #define REG_ACCEL_CONFIG 0x1C
 #define REG_ACCEL_XOUT_H 0x3B
 
 #define I2C_TIMEOUT_MS 5
 
-#define GYRO_CUTOFF_FREQ 45.0f
+#define GYRO_CUTOFF_FREQ     45.0f
 #define GYRO_LOW_CUTOFF_FREQ 15.0f
-#define ACCEL_CUTOFF_FREQ 5.0f
+#define ACCEL_CUTOFF_FREQ    5.0f
 
 #ifdef  GYRO_1KHZ
 #define GYRO_DT 0.001f // 1ms
@@ -123,7 +123,7 @@ static void mpu_configure(void)
     mpu_write_reg(REG_INT_ENABLE, 0x01);        // Enable interrupts
     mpu_write_reg(REG_INT_CFG, 0x10);           // Interrupt on data ready
     mpu_write_reg(REG_ACCEL_CONFIG, 0x10);      // 8g full scale range
-    mpu_write_reg(REG_ACCEL_CONFIG_2, 0x03);    // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
+    mpu_write_reg(REG_ACC_CONFIG2, 0x03);       // DLPF_CFG=3 (Gyro/Accel: ~41Hz, coupe bien avant Nyquist 125Hz)
 }
 
 #define ALPHA (2.0f * M_PI * ACCEL_CUTOFF_FREQ * GYRO_DT)

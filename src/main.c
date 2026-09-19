@@ -14,7 +14,6 @@
 #include "nvs.h"
 
 #include "gyro_task.h"
-#include "esc_task.h"
 
 #include "server.h"
 #include "utils.h"
@@ -22,10 +21,7 @@
 
 #include "pid.h"
 
-#include "power.h"
-#include "gps.h"
-
-#define DEBUG_GYRO 1
+// #define DEBUG_GYRO 1
 // #define DEBUG_STACK 1
 // #define LEVEL_MODE_MAHONY 1
 
@@ -46,6 +42,7 @@ PID_Config_t g_pid_yaw;
 
 const int   g_servo_gpios[NUM_PWM_OUPUTS] = {PWM_OUTPUT_PINS};
 float       g_attitude_correction_rp[2] = {0.f, 0.f};
+uint16_t    g_motor_magnets_count = 14;
 uint8_t     g_crash_reasons[4] = {0, 0, 0, 0};
 attitude_t  g_attitude;
 int         g_master_kp_gain_channel = 5;
@@ -68,7 +65,7 @@ TaskHandle_t crsf_rx_task_handle = NULL;
 TaskHandle_t crsf_tx_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
 TaskHandle_t power_task_handle = NULL;
-TaskHandle_t gps_task_handle = NULL;
+TaskHandle_t telemetry_task_handle = NULL;
 TaskHandle_t esc_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle = NULL;
 
@@ -344,10 +341,10 @@ inline static uint16_t apply_motor_thermal_protection(uint16_t pwm_value)
 {
     if (g_esc_temperature > 80)
     {
-        return clampu(pwm_value, 1500, 2000);
+        return clampui(pwm_value, 1500, 2000);
     } else if (g_esc_temperature > 90)
     {
-        return clampu(pwm_value, 1300, 2000);
+        return clampui(pwm_value, 1300, 2000);
     }
     return pwm_value;
 }
@@ -540,9 +537,16 @@ void servo_update_task(void *pvParameters)
         const float az            = gyro_data.raw_az * 0.7f; // decrease Z axis sensitivity to avoid false positives on landing
         const float shock_factor  = gyro_data.raw_ax * gyro_data.raw_ax + gyro_data.raw_ay * gyro_data.raw_ay + az * az;
         const bool shock_detected = shock_factor > g_crash_g_threshold;
-
         rx_data.us_values[CHANNEL_THROTTLE] = apply_motor_thermal_protection(rx_data.us_values[CHANNEL_THROTTLE]);
+        
+        // Check ESC temperature and apply thermal protection if necessary
         rx_data.us_values[CHANNEL_THROTTLE] = process_motor_safety(rx_data.us_values[CHANNEL_THROTTLE], shock_detected);
+
+        if (!g_elrs_armed)
+        {
+            // If not armed, force throttle to 0%
+            rx_data.us_values[CHANNEL_THROTTLE] = 1000;
+        }
 
         if ((esp_timer_get_time() - servo_timer) > 20000)
         {
@@ -555,7 +559,7 @@ void servo_update_task(void *pvParameters)
                     uint16_t us = rx_data.us_values[g_ouput_mapping[i]];
 
                     // Clamp to 1000 µs - 2000 µs
-                    us = clampu(us, 1000, 2000);
+                    us = clampui(us, 1000, 2000);
 
                     if (g_invert_channel[i])
                     {
@@ -608,8 +612,7 @@ void app_main(void)
     load_pwm_config();
     load_attitude_correction();
 
-    // Init semaphores
-    power_init();
+    // Init tasks
     gps_init();
     crsf_init();
     gyro_init();
@@ -619,9 +622,7 @@ void app_main(void)
     xTaskCreate(crsf_task_rx,         "crsf_rx",     2048, NULL, 15, &crsf_rx_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl",  4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_supervisor_task, "gyro_sv",     2048, NULL, 21, &gyro_sv_task_handle);
-    xTaskCreate(crsf_task_tx,         "crsf_tx",     2048, NULL, 10, &crsf_tx_task_handle);
-    xTaskCreate(gps_task,             "gps_task",    4096, NULL, 10, &gps_task_handle);
-    //xTaskCreate(esc_telemetry_task,   "esc_task",    4096, NULL, 10, &esc_task_handle);
+    xTaskCreate(telemetry_task,             "tlm_task",    4096, NULL, 10, &telemetry_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)

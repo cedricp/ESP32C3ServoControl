@@ -37,5 +37,13 @@ typedef struct __attribute__((packed)) {
     uint8_t  reserved2[4]; // Reserved
 } ubx_nav_pvt_t;
 
-void gps_task(void *pvParameters);
+typedef struct {
+    uint8_t  temperature;       // °C
+    uint32_t voltage_mv;        // cVolts
+    uint32_t current_ma;        // cAmpères
+    uint16_t mah;               // mAh
+    uint32_t erpm;              // Tours/min électriques
+} esc_telemetry_t;
+
+void telemetry_task(void *pvParameters);
 void gps_init();

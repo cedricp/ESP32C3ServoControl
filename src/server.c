@@ -35,6 +35,7 @@ extern uint8_t      g_crash_reasons[4];
 extern float        g_attitude_correction_rp[2];
 extern bool         g_invert_accel[3];
 extern float        g_crash_g_threshold;
+extern uint16_t     g_motor_magnets_count;
 
 extern PID_Config_t *get_pid_roll(void);
 extern PID_Config_t *get_pid_pitch(void);
@@ -319,6 +320,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item && NUM_PWM_OUPUTS > 5)
         g_failsafe_us[5] = item->valueint;
 
+    item = cJSON_GetObjectItem(json, "motor_magnets");
+    if (item)
+        g_motor_magnets_count = item->valueint;
+
     cJSON_Delete(json);
 
     save_pwm_config();
@@ -398,6 +403,8 @@ esp_err_t config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(json, "invertaz", g_invert_accel[2]);
 
     cJSON_AddNumberToObject(json, "crash_threshold", sqrtf(g_crash_g_threshold));
+
+    cJSON_AddNumberToObject(json, "motor_magnets", g_motor_magnets_count);
 
     // 3. Conversion de l'objet JSON en chaîne de caractères (non formatée = plus compacte)
     char *json_str = cJSON_PrintUnformatted(json);

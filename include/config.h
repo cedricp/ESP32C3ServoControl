@@ -30,5 +30,5 @@
 #define ADC_VOLTMETER_PIN   ADC_CHANNEL_0
 
 // ESC Software serial RX pin
-#define ESC_SWS_RX_GPIO     GPIO_NUM_0
+#define ESC_RX_GPIO         GPIO_NUM_0
 #define ESC_BITRATE         115200

@@ -181,8 +181,18 @@
     </nav>
 
     <header>
-        <h1>PWM Outputs</h1>
+        <h1>ESC</h1>
         <p class="subtitle">ESP32-C3 Flight Controller</p>
+    </header>
+    
+    <div class="card">
+        <h2>ESC configuration</h2>
+        <div class="control-label"><span>Number of magnets</span><span class="val" id="motor_magnets_v">0.00</span></div>
+        <input type="range" id="motor_magnets" min="0" max="20" step="1" value="14">
+    </div>
+
+    <header>
+        <h1>PWM Outputs</h1>
     </header>
     
     <div class="forms-wrapper">

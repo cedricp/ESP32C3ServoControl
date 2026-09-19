@@ -8,15 +8,11 @@
 #include "esp_attr.h"
 
 #include "crsf_task.h"
-#include "crsf_types.h"
 #include "config.h"
-#include "gps.h"
-#include "power.h"
 
 
 SemaphoreHandle_t g_crsf_mutex = NULL;
-extern QueueHandle_t power_queue;
-extern QueueHandle_t gps_queue;
+extern uint16_t   g_motor_magnets_count;
 
 servo_data_t g_servo_data;
 
@@ -201,7 +197,7 @@ void crsf_task_rx(void *pvParameters)
 void send_crsf_volt_array(uint16_t batt1_mv, uint16_t batt2_mv) {
     uint8_t tx_buffer[9];
 
-    tx_buffer[0] = CRSF_ADDRESS_FLIGHT_CONTROLLER; // 0xC8
+    tx_buffer[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xC8
     tx_buffer[1] = 7;                              // Length
     tx_buffer[2] = CRSF_FRAMETYPE_CELLS_SENSOR;    // 0x0E
     
@@ -223,7 +219,8 @@ void send_crsf_volt_array(uint16_t batt1_mv, uint16_t batt2_mv) {
 }
 
 // Function to forward data without floating-point emulation
-void forward_gps_to_elrs(const ubx_nav_pvt_t *u_blox_data, crsf_telemetry_gps_t *elrs_data) {
+void forward_gps_to_elrs(const ubx_nav_pvt_t *u_blox_data, crsf_telemetry_gps_t *elrs_data)
+{
     // 1. Direct register copy for coordinates (No float math, single clock cycle)
     elrs_data->latitude  = u_blox_data->lat;
     elrs_data->longitude = u_blox_data->lon;
@@ -243,12 +240,13 @@ void forward_gps_to_elrs(const ubx_nav_pvt_t *u_blox_data, crsf_telemetry_gps_t 
 }
 
 // Function to send the complete CRSF packet via UART
-static void send_crsf_gps_packet(const crsf_telemetry_gps_t *gps_payload) {
+void crsf_send_gps_packet(const crsf_telemetry_gps_t *gps_payload)
+{
     uint8_t tx_buffer[sizeof(crsf_header_t) + sizeof(crsf_telemetry_gps_t) + 1];
     
     // 1. Prepare Header
     crsf_header_t *header = (crsf_header_t *)tx_buffer;
-    header->device_address = CRSF_ADDRESS_FLIGHT_CONTROLLER;
+    header->device_address = CRSF_ADDRESS_RADIO_TRANSMITTER;
     header->length = CRSF_GPS_PAYLOAD_SIZE + 2; // Type (1) + Payload + CRC (1)
     header->frame_type = CRSF_FRAMETYPE_GPS;
     
@@ -273,13 +271,14 @@ static void send_crsf_gps_packet(const crsf_telemetry_gps_t *gps_payload) {
     uart_write_bytes(CRSF_UART_PORT, (const char *)tx_buffer, sizeof(tx_buffer));
 }
 
-void send_crsf_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_times_10, uint32_t fuel_mah, uint8_t percent) {
+void crsf_send_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_times_10, uint32_t fuel_mah, uint8_t percent)
+{
     // Total size = Header (3 bytes) + Payload (8 bytes) + CRC (1 byte) = 12 bytes
     uint8_t tx_buffer[3 + 8 + 1];
     
     // 1. Setup CRSF Header
     crsf_header_t *header = (crsf_header_t *)tx_buffer;
-    header->device_address = CRSF_ADDRESS_FLIGHT_CONTROLLER;
+    header->device_address = CRSF_ADDRESS_RADIO_TRANSMITTER;
     header->length = 1 + 8 + 1; // Type (1) + Payload (8) + CRC (1)
     header->frame_type = CRSF_FRAMETYPE_BATTERY_SENSOR;
     
@@ -309,22 +308,69 @@ void send_crsf_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_ti
     uart_write_bytes(CRSF_UART_PORT, (const char *)tx_buffer, sizeof(tx_buffer));
 }
 
-void crsf_task_tx(void *pvParameters)
+void crsf_send_temp(int16_t temp_celsius)
 {
-    ubx_nav_pvt_t gps_data;
-    batt_stat_t power_data;
-    crsf_telemetry_gps_t crsf_gps_data;
+    uint8_t frame[7];
 
-    while(1)
-    {
-        if (xQueueReceive(power_queue, &power_data, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
-            send_crsf_battery_packet(power_data.main_batt_voltage_mv / 100, 0, 0, power_data.main_batt_percent);
-        }
-        if (xQueueReceive(gps_queue, &gps_data, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
-            forward_gps_to_elrs(&gps_data, &crsf_gps_data);
-            send_crsf_gps_packet(&crsf_gps_data);        
-        }
-    }
+    frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xC8
+    frame[1] = 5;                              // Payload 
+    frame[2] = CRSF_FRAMETYPE_TEMP;            // 0x0D
+
+    frame[3] = 0; // temp ID
+    frame[4] = (uint8_t)((temp_celsius >> 8) & 0xFF);
+    frame[5] = (uint8_t)(temp_celsius & 0xFF);
+
+    // CRC calculé sur Type + Payload (du byte 2 au byte 6 inclus = 5 octets)
+    frame[6] = crsf_crc8(&frame[2], 4);
+
+    // Envoi sur l'UART de télémétrie
+    uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
+}
+
+void crsf_send_rpm(uint16_t rpm)
+{
+    uint8_t frame[8];
+
+    frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xC8
+    frame[1] = 6;                              // Payload
+    frame[2] = CRSF_FRAMETYPE_RPM;             // 0x0C
+
+// Encodage 24-bit Big-Endian (MSB en premier)
+    frame[3] = 0;
+    frame[4] = (uint8_t)((rpm >> 16) & 0xFF);
+    frame[5] = (uint8_t)((rpm >> 8) & 0xFF);
+    frame[6] = (uint8_t)(rpm & 0xFF);
+
+    // CRC calculé sur Type + Payload (du byte 2 au byte 6 inclus = 5 octets)
+    frame[7] = crsf_crc8(&frame[2], 5);
+
+    // Envoi UART
+    uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
+}
+
+void crsf_send_attitude(int16_t pitch_deg, int16_t roll_deg, int16_t yaw_deg)
+{
+    uint8_t frame[10];
+
+    frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xC8
+    frame[1] = 8;                              // Type (1) + Payload (6) + CRC (1) = 8
+    frame[2] = CRSF_FRAMETYPE_ATTITUDE;        // 0x1E
+
+    // Pitch (Big-Endian)
+    frame[3] = (uint8_t)((pitch_deg >> 8) & 0xFF);
+    frame[4] = (uint8_t)(pitch_deg & 0xFF);
+
+    // Roll (Big-Endian)
+    frame[5] = (uint8_t)((roll_deg >> 8) & 0xFF);
+    frame[6] = (uint8_t)(roll_deg & 0xFF);
+
+    // Yaw (Big-Endian)
+    frame[7] = (uint8_t)((yaw_deg >> 8) & 0xFF);
+    frame[8] = (uint8_t)(yaw_deg & 0xFF);
+
+    // CRC calculé du type jusqu'au dernier octet du Yaw (indices 2 à 8)
+    frame[9] = crsf_crc8(&frame[2], 7);
+
+    // Envoi sur l'UART
+    uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
 }

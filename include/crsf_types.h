@@ -9,6 +9,7 @@ typedef enum
     CRSF_FRAMETYPE_BATTERY_SENSOR       = 0x08,
     CRSF_FRAMETYPE_BARO_ALTITUDE        = 0x09,
     CRSF_FRAMETYPE_HEARTBEAT            = 0x0B,  //no need to support? (rev07)
+    CRSF_FRAMETYPE_RPM                  = 0x0c,
     CRSF_FRAMETYPE_TEMP                 = 0x0d,
     CRSF_FRAMETYPE_CELLS_SENSOR         = 0x0e,
     CRSF_FRAMETYPE_VIDEO_TRANSMITTER    = 0x0F,  //no need to support? (rev07)
@@ -20,22 +21,6 @@ typedef enum
     CRSF_FRAMETYPE_LINK_TX_ID           = 0x1D,  //no need to support?
     CRSF_FRAMETYPE_ATTITUDE             = 0x1E,
     CRSF_FRAMETYPE_FLIGHT_MODE          = 0x21,  //no need to support?
-    // Extended Header Frames, range: 0x28 to 0x96
-    CRSF_FRAMETYPE_DEVICE_PING          = 0x28,  //no "flight controller" needs to know about this
-    CRSF_FRAMETYPE_DEVICE_INFO          = 0x29,  //no "flight controller" needs to know about this
-    CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY = 0x2B,  //no "flight controller" needs to know about this
-    CRSF_FRAMETYPE_PARAMETER_READ       = 0x2C,  //no "flight controller" needs to know about this
-    CRSF_FRAMETYPE_PARAMETER_WRITE      = 0x2D,  //no "flight controller" needs to know about this
-    CRSF_FRAMETYPE_COMMAND              = 0x32,  //no "flight controller" needs to know about this
-    // KISS frames
-    CRSF_FRAMETYPE_KISS_REQ             = 0x78,  //not in edgeTX
-    CRSF_FRAMETYPE_KISS_RESP            = 0x79,  //not in edgeTX
-    // MSP commands
-    CRSF_FRAMETYPE_MSP_REQ              = 0x7A,  //not in edgeTX
-    CRSF_FRAMETYPE_MSP_RESP             = 0x7B,  //not in edgeTX
-    CRSF_FRAMETYPE_MSP_WRITE            = 0x7C,  //not in edgeTX
-    // Ardupilot frames
-    CRSF_FRAMETYPE_ARDUPILOT_RESP       = 0x80,
 } crsf_frame_type_e;
 
 typedef enum
@@ -68,7 +53,7 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint16_t voltage;     // Voltage (V * 10) -> e.g. 126 = 12.6V
     uint16_t current;     // Current (A * 10) -> e.g. 45  = 4.5A
-    uint8_t capacity[3];    // Fuel/Capacity drawn in mAh (Stored as 3 bytes)
+    uint8_t  capacity[3];    // Fuel/Capacity drawn in mAh (Stored as 3 bytes)
     uint8_t  remaining;   // Remaining battery capacity in % (0 to 100)
 } crsf_telemetry_battery_t;
 

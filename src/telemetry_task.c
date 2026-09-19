@@ -5,16 +5,55 @@
 #include "esp_timer.h"
 #include "driver/uart.h"
 #include <string.h>
-#include "gps.h"
+#include "telemetry_task.h"
+#include "crsf_types.h"
+#include "crsf_task.h"
 #include "config.h"
 
-QueueHandle_t gps_queue;
+extern volatile uint32_t g_esc_temperature;
+extern uint16_t    g_motor_magnets_count;
 
 ubx_nav_pvt_t g_pvt_data;
+
+static inline uint8_t update_crc8(uint8_t crc, uint8_t crc_seed) {
+    uint8_t i;
+    crc ^= crc_seed;
+    for (i = 0; i < 8; i++) {
+        if (crc & 0x80) {
+            crc = (crc << 1) ^ 0x07;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static inline uint8_t calculate_crc8_kiss(const uint8_t *buf, uint8_t len) {
+    uint8_t crc = 0;
+    for (uint8_t i = 0; i < len; i++) {
+        crc = update_crc8(crc, buf[i]);
+    }
+    return crc;
+}
 
 inline void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
     *CK_A = *CK_A + cb;
     *CK_B = *CK_B + *CK_A;
+}
+
+static bool parse_kiss_frame(const uint8_t *frame, esc_telemetry_t *data) {
+    uint8_t computed_crc = calculate_crc8_kiss(frame, 9);
+    if (computed_crc != frame[9]) {
+        return false;
+    }
+
+    data->temperature    = frame[0];
+    data->voltage_mv     = (float)((frame[1] << 8) | frame[2]) * 10.0f; 
+    data->current_ma     = (float)((frame[3] << 8) | frame[4]) * 10.0f; 
+    data->mah            = (frame[5] << 8) | frame[6];
+    data->erpm           = (uint32_t)((frame[7] << 8) | frame[8]) * 100;
+
+    return true;
 }
 
 static void gps_set_rate(uint16_t rate_ms) {
@@ -47,8 +86,55 @@ static void gps_set_rate(uint16_t rate_ms) {
     uart_write_bytes(GPS_UART_PORT, (const char *)cfg_rate_msg, sizeof(cfg_rate_msg));
 }
 
-void gps_task(void *pvParameters) {
-    
+void process_esc()
+{
+    uint8_t byte;
+    uint8_t frame[20];
+    uint8_t frame_idx = 0;
+    esc_telemetry_t esc_telemetry_data;
+
+    uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, ESC_RX_GPIO, GPIO_NUM_NC, GPIO_NUM_NC);
+    uart_flush_input(GPS_UART_PORT);
+    bool kiss_frame_received = false;
+    while(1)
+    {
+        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(100)) > 0) 
+        {
+            frame[frame_idx++] = byte;
+            
+            if (frame_idx >= sizeof(frame)) {
+                frame_idx = 0; // Reset if overflow
+            }
+            
+            if (frame_idx >= 10) {
+                int offset = frame_idx - 10;
+                if (parse_kiss_frame(frame + offset, &esc_telemetry_data)) {
+                    kiss_frame_received = true;
+                    crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, 0);
+                    crsf_send_temp(esc_telemetry_data.temperature*10);
+                    crsf_send_rpm(esc_telemetry_data.erpm/g_motor_magnets_count/2);
+                    printf("ESC Telemetry: Temp=%d°C, Voltage=%ldmV, Current=%ldmA, mAh=%d, eRPM=%ld\n",
+                           esc_telemetry_data.temperature,
+                           esc_telemetry_data.voltage_mv,
+                           esc_telemetry_data.current_ma,
+                           esc_telemetry_data.mah,
+                           esc_telemetry_data.erpm);
+                }
+            }
+        }
+        else
+        {
+            kiss_frame_received = true;
+        }
+        if (kiss_frame_received)
+        {
+            break;
+        }
+    }
+}
+
+void process_gps()
+{
     uint8_t byte;
     int state = 0;
     uint8_t msg_class = 0, msg_id = 0;
@@ -59,10 +145,15 @@ void gps_task(void *pvParameters) {
     uint8_t *pvt_ptr = (uint8_t *)&pvt_data;
     uint8_t CK_A = 0, CK_B = 0;
     uint8_t rec_CK_A = 0, rec_CK_B = 0;
+    bool data_received = false;
+    crsf_telemetry_gps_t crsf_gps_data;
 
-    // Read UBlox binary data from GPS
-    while (1) {
-        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(10)) > 0) {
+    uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, GPS_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
+    uart_flush_input(GPS_UART_PORT);
+    while(1)
+    {
+        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(100)) > 0) 
+        {
             switch (state) {
                 case 0: // Wait Sync 1
                     if (byte == 0xB5) state = 1;
@@ -121,24 +212,36 @@ void gps_task(void *pvParameters) {
                     
                     // Checksum validation
                     if (CK_A == rec_CK_A && CK_B == rec_CK_B) {
-                        if (pvt_data.fixType >= 3) {
-                            xQueueSend(gps_queue, &pvt_data, 0);
-                            memcpy(&g_pvt_data, &pvt_data, sizeof(ubx_nav_pvt_t));
-                        } else {
-                        }
-                    } else {
+                        data_received = true;
+                        forward_gps_to_elrs(&pvt_data, &crsf_gps_data);
+                        crsf_send_gps_packet(&crsf_gps_data); 
+                        memcpy(&g_pvt_data, &pvt_data, sizeof(ubx_nav_pvt_t));
                     }
                     state = 0; // Ready for next frame
                     break;
             }
         }
+        else
+        {
+            break;
+        }
+        if (data_received)
+        {
+            break;
+        }
+    }
+}
+
+void telemetry_task(void *pvParameters)
+{
+    while (1) {
+        process_esc();
+        process_gps();
     }
 }
 
 void gps_init()
 {
-    gps_queue = xQueueCreate(1, sizeof(ubx_nav_pvt_t));
-    
     uart_driver_install(GPS_UART_PORT, 1024, 256, 0, NULL, 0);
     // Init UART for GPS reception
     uart_config_t uart_config = {
@@ -151,6 +254,4 @@ void gps_init()
     
     uart_param_config(GPS_UART_PORT, &uart_config);
     uart_set_pin(GPS_UART_PORT, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-
-    // gps_set_rate(2000);
 }

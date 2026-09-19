@@ -13,7 +13,6 @@
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
 
-
 const char *reset_reason_to_str(uint8_t reason);
 void check_i2c(int gpio_sda, int gpio_scl);
 
@@ -154,7 +153,7 @@ inline float __attribute__((always_inline)) clampf(float value, float min, float
     return value;
 }
 
-inline uint16_t __attribute__((always_inline)) clampu(uint16_t value, uint16_t min, uint16_t max)
+inline uint16_t __attribute__((always_inline)) clampui(uint16_t value, uint16_t min, uint16_t max)
 {
     if (value < min)
         return min;
