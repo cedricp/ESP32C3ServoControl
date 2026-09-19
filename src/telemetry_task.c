@@ -13,7 +13,8 @@
 extern volatile uint32_t g_esc_temperature;
 extern uint16_t    g_motor_magnets_count;
 
-ubx_nav_pvt_t g_pvt_data;
+uint32_t last_gps_frame_time = 0;
+uint32_t last_esc_frame_time = 0;
 
 static inline uint8_t update_crc8(uint8_t crc, uint8_t crc_seed) {
     uint8_t i;
@@ -110,15 +111,12 @@ void process_esc()
                 int offset = frame_idx - 10;
                 if (parse_kiss_frame(frame + offset, &esc_telemetry_data)) {
                     kiss_frame_received = true;
-                    crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, 0);
-                    crsf_send_temp(esc_telemetry_data.temperature*10);
-                    crsf_send_rpm(esc_telemetry_data.erpm/g_motor_magnets_count/2);
-                    printf("ESC Telemetry: Temp=%d°C, Voltage=%ldmV, Current=%ldmA, mAh=%d, eRPM=%ld\n",
-                           esc_telemetry_data.temperature,
-                           esc_telemetry_data.voltage_mv,
-                           esc_telemetry_data.current_ma,
-                           esc_telemetry_data.mah,
-                           esc_telemetry_data.erpm);
+                    if (esp_timer_get_time() - last_esc_frame_time > 100000) { // 100ms
+                        crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, 0);
+                        crsf_send_temp(esc_telemetry_data.temperature*10);
+                        crsf_send_rpm(esc_telemetry_data.erpm/g_motor_magnets_count/2);
+                        last_esc_frame_time = esp_timer_get_time();
+                    }
                 }
             }
         }
@@ -213,9 +211,11 @@ void process_gps()
                     // Checksum validation
                     if (CK_A == rec_CK_A && CK_B == rec_CK_B) {
                         data_received = true;
-                        forward_gps_to_elrs(&pvt_data, &crsf_gps_data);
-                        crsf_send_gps_packet(&crsf_gps_data); 
-                        memcpy(&g_pvt_data, &pvt_data, sizeof(ubx_nav_pvt_t));
+                        if (esp_timer_get_time() - last_gps_frame_time > 100000) { // 100ms
+                            forward_gps_to_elrs(&pvt_data, &crsf_gps_data);
+                            crsf_send_gps_packet(&crsf_gps_data); 
+                            last_gps_frame_time = esp_timer_get_time();
+                        }
                     }
                     state = 0; // Ready for next frame
                     break;
