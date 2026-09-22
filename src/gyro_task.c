@@ -65,12 +65,12 @@ typedef struct
 gyro_data_t g_gyro_data;
 int16_t g_gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 
-static const float GYRO_SCALE = 1.0f / 65.5f; // LSB/(deg/s) pour ±500dps, cf datasheet
+static const float GYRO_SCALE     = 1.0f / 65.5f; // LSB/(deg/s) pour ±500dps, cf datasheet
 static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
 extern bool g_invert_accel[3];
 
-// cutoff could be tuned for latency issue (less is induce more lag)
+// cutoff could be tuned for latency issue (less induces more lag)
 static FilterPT1 filterGyroRoll;
 static FilterPT1 filterGyroPitch;
 static FilterPT1 filterGyroYaw;

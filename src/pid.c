@@ -269,3 +269,15 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
     // Yaw (cap) : -180° à +180° (dérive sans magnétomètre, mais utilisable en relatif)
     // *yaw = fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)) * RAD_TO_DEG;
 }
+
+void init_attitude(attitude_t *attitude, float ax, float ay, float az)
+{
+    float accelNorm = fast_sqrtf(ay * ay + az * az);
+
+    // Initialisation directe basée sur la gravité au sol
+    attitude->rollDeg  = fast_atan2f(ay, az) * RAD_TO_DEG;
+    attitude->pitchDeg = (accelNorm > 0.001f)
+                             ? fast_atan2f(-ax, accelNorm) * RAD_TO_DEG
+                             : 0.0f;
+    attitude->rollDeg  = 0;
+}

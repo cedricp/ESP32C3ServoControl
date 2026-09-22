@@ -1,7 +1,5 @@
 #pragma once
 
-#include <hal/adc_types.h>
-
 // CRSF UART configuration
 #define CRSF_UART_PORT      UART_NUM_0
 #define CRSF_RX_PIN         GPIO_NUM_3
@@ -25,9 +23,6 @@
 #define I2C_SCL_PIN         GPIO_NUM_21
 #define I2C_INT_PIN         GPIO_NUM_1
 #define I2C_POWER_PIN       GPIO_NUM_2
-
-// Voltmeter configuration (GPIO_NUM_0 is ADC1 channel 0)
-#define ADC_VOLTMETER_PIN   ADC_CHANNEL_0
 
 // ESC Software serial RX pin
 #define ESC_RX_GPIO         GPIO_NUM_0

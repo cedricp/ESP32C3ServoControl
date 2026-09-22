@@ -6,18 +6,14 @@
 #include "esp_err.h"
 #include "config.h"
 
-
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
 
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
 
-const char *reset_reason_to_str(uint8_t reason);
-void check_i2c(int gpio_sda, int gpio_scl);
-
-esp_err_t nvs_save_struct(const char *key, const void *data, size_t size);
-esp_err_t nvs_load_struct(const char *key, void *data, size_t size);
+extern const uint8_t crc8_0x07_tab[256];
+extern const uint8_t crc8_0xd5_tab[256];
 
 typedef enum
 {
@@ -41,11 +37,35 @@ typedef enum {
     MOTOR_STATE_WAIT_THROTTLE_ZERO
 } motor_safety_state_t;
 
+typedef enum
+{
+  BATTERY_3S,
+  BATTERY_4S,
+  BATTERY_UNKNOWN
+} battery_type_t;
+
+
 typedef struct
 {
     uint16_t us_values[NUM_CRSF_CHANNELS];
     char valid;
 } servo_data_t;
+
+static inline uint8_t __attribute__((always_inline)) calculate_crc8_kiss(const uint8_t *ptr, uint8_t len) {
+    uint8_t crc = 0;
+    while (len--) {
+        crc = crc8_0x07_tab[crc ^ *ptr++];
+    }
+    return crc;
+}
+
+static inline uint8_t __attribute__((always_inline)) calculate_crc8_crsf(const uint8_t * ptr, uint8_t len)
+{
+    uint8_t crc = 0;
+    for (uint8_t i=0; i<len; i++)
+        crc = crc8_0xd5_tab[crc ^ *ptr++];
+    return crc;
+}
 
 inline float __attribute__((always_inline)) fast_fabsf(float x)
 {
@@ -166,3 +186,11 @@ inline uint16_t __attribute__((always_inline)) map_to_pwm(float x)
 {
     return (uint16_t)((x + 1.0f) * 500.0f + 1000.0f);
 }
+const char *reset_reason_to_str(uint8_t reason);
+void check_i2c(int gpio_sda, int gpio_scl);
+
+esp_err_t nvs_save_struct(const char *key, const void *data, size_t size);
+esp_err_t nvs_load_struct(const char *key, void *data, size_t size);
+
+uint8_t calcBatteryPercentage(battery_type_t battery_type, uint32_t voltage_main);
+battery_type_t identifyBatteryType(uint32_t voltage_main);

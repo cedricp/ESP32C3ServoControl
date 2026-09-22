@@ -9,33 +9,38 @@
 #include "crsf_types.h"
 #include "crsf_task.h"
 #include "config.h"
+#include "utils.h"
+#include "pid.h"
 
 extern volatile uint32_t g_esc_temperature;
 extern uint16_t    g_motor_magnets_count;
+extern attitude_t  g_attitude;
+extern float       g_attitude_correction_rp[2];
 
 uint32_t last_gps_frame_time = 0;
 uint32_t last_esc_frame_time = 0;
+static battery_type_t g_battery_type = BATTERY_UNKNOWN;
 
-static inline uint8_t update_crc8(uint8_t crc, uint8_t crc_seed) {
-    uint8_t i;
-    crc ^= crc_seed;
-    for (i = 0; i < 8; i++) {
-        if (crc & 0x80) {
-            crc = (crc << 1) ^ 0x07;
-        } else {
-            crc <<= 1;
-        }
-    }
-    return crc;
-}
+// static inline uint8_t update_crc8(uint8_t crc, uint8_t crc_seed) {
+//     uint8_t i;
+//     crc ^= crc_seed;
+//     for (i = 0; i < 8; i++) {
+//         if (crc & 0x80) {
+//             crc = (crc << 1) ^ 0x07;
+//         } else {
+//             crc <<= 1;
+//         }
+//     }
+//     return crc;
+// }
 
-static inline uint8_t calculate_crc8_kiss(const uint8_t *buf, uint8_t len) {
-    uint8_t crc = 0;
-    for (uint8_t i = 0; i < len; i++) {
-        crc = update_crc8(crc, buf[i]);
-    }
-    return crc;
-}
+// static inline uint8_t calculate_crc8_kiss(const uint8_t *buf, uint8_t len) {
+//     uint8_t crc = 0;
+//     for (uint8_t i = 0; i < len; i++) {
+//         crc = update_crc8(crc, buf[i]);
+//     }
+//     return crc;
+// }
 
 inline void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
     *CK_A = *CK_A + cb;
@@ -87,7 +92,7 @@ static void gps_set_rate(uint16_t rate_ms) {
     uart_write_bytes(GPS_UART_PORT, (const char *)cfg_rate_msg, sizeof(cfg_rate_msg));
 }
 
-void process_esc()
+static void process_esc()
 {
     uint8_t byte;
     uint8_t frame[20];
@@ -112,7 +117,16 @@ void process_esc()
                 if (parse_kiss_frame(frame + offset, &esc_telemetry_data)) {
                     kiss_frame_received = true;
                     if (esp_timer_get_time() - last_esc_frame_time > 100000) { // 100ms
-                        crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, 0);
+                        uint8_t battery_percentage = 0;
+                        if (g_battery_type == BATTERY_UNKNOWN)
+                        {
+                            g_battery_type = identifyBatteryType(esc_telemetry_data.voltage_mv);
+                        }
+                        else
+                        {
+                            battery_percentage = calcBatteryPercentage(g_battery_type, esc_telemetry_data.voltage_mv);
+                        }
+                        crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, battery_percentage);
                         crsf_send_temp(esc_telemetry_data.temperature*10);
                         crsf_send_rpm(esc_telemetry_data.erpm/g_motor_magnets_count/2);
                         last_esc_frame_time = esp_timer_get_time();
@@ -131,7 +145,7 @@ void process_esc()
     }
 }
 
-void process_gps()
+static void process_gps()
 {
     uint8_t byte;
     int state = 0;
@@ -232,18 +246,27 @@ void process_gps()
     }
 }
 
+static void process_attitude()
+{
+    crsf_send_attitude((int16_t)((g_attitude.pitchDeg + g_attitude_correction_rp[0] ) * 100),
+                       (int16_t)((g_attitude.rollDeg  + g_attitude_correction_rp[1]) * 100),
+                       (int16_t)(g_attitude.yawDeg * 100));
+}
+
 void telemetry_task(void *pvParameters)
 {
     while (1) {
         process_esc();
         process_gps();
+        process_attitude();
     }
 }
 
 void gps_init()
 {
     uart_driver_install(GPS_UART_PORT, 1024, 256, 0, NULL, 0);
-    // Init UART for GPS reception
+    // Init UART for GPS/ESC reception
+    // Both will share the same UART, but we will switch the RX pin depending on the mode (GPS or ESC)
     uart_config_t uart_config = {
         .baud_rate = GPS_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,

@@ -56,7 +56,6 @@ bool        g_invert_accel[3];
 bool        g_elrs_armed = false;
 bool        g_elrs_data_valid = false;
 float       g_crash_g_threshold = 16.f;
-motor_safety_state_t g_current_state = MOTOR_STATE_NORMAL;
 volatile uint32_t g_esc_temperature = 0;
 
 
@@ -291,28 +290,16 @@ static inline uint16_t compute_axis_pwm(PID_Config_t *pid, int16_t stick_us, flo
     return map_to_pwm(axis_correction);
 }
 
-#ifndef LEVEL_MODE_MAHONY
-static void init_attitude(attitude_t *attitude, float ax, float ay, float az)
-{
-    float accelNorm = fast_sqrtf(ay * ay + az * az);
-
-    // Initialisation directe basée sur la gravité au sol
-    attitude->rollDeg = fast_atan2f(ay, az) * RAD_TO_DEG;
-    attitude->pitchDeg = (accelNorm > 0.001f)
-                             ? fast_atan2f(-ax, accelNorm) * RAD_TO_DEG
-                             : 0.0f;
-}
-#endif
-
 inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool shock_detected) {
+    static   motor_safety_state_t current_state = MOTOR_STATE_NORMAL;
     uint32_t pwm_us = 0;
 
-    switch (g_current_state) {
+    switch (current_state) {
         
         case MOTOR_STATE_NORMAL:
             if (shock_detected) {
                 pwm_us = 1000;
-                g_current_state = MOTOR_STATE_EMERGENCY_CUT;
+                current_state = MOTOR_STATE_EMERGENCY_CUT;
             } else {
                 pwm_us = current_throttle_us;
             }
@@ -322,7 +309,7 @@ inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool s
             pwm_us = 1000;
             
             if (current_throttle_us < 1020) {
-                g_current_state = MOTOR_STATE_WAIT_THROTTLE_ZERO;
+                current_state = MOTOR_STATE_WAIT_THROTTLE_ZERO;
             }
             break;
 
@@ -330,7 +317,7 @@ inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool s
             pwm_us = 1000;
             
             if (current_throttle_us > 1025) {
-                g_current_state = MOTOR_STATE_NORMAL;
+                current_state = MOTOR_STATE_NORMAL;
             }
             break;
     }
@@ -339,10 +326,10 @@ inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool s
 
 inline static uint16_t apply_motor_thermal_protection(uint16_t pwm_value)
 {
-    if (g_esc_temperature > 80)
+    if (g_esc_temperature > 85)
     {
         return clampui(pwm_value, 1500, 2000);
-    } else if (g_esc_temperature > 90)
+    } else if (g_esc_temperature > 95)
     {
         return clampui(pwm_value, 1300, 2000);
     }

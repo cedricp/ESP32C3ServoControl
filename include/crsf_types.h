@@ -5,9 +5,12 @@
 typedef enum
 {
     CRSF_FRAMETYPE_GPS                  = 0x02,
+    CRSF_FRAMETYPE_GPS_TIME             = 0x03,
+    CRSF_FRAMETYPE_GPS_EXTENDED         = 0x06,
     CRSF_FRAMETYPE_VARIO                = 0x07,
     CRSF_FRAMETYPE_BATTERY_SENSOR       = 0x08,
     CRSF_FRAMETYPE_BARO_ALTITUDE        = 0x09,
+    CRSF_FRAMETYPE_AIRSPEED             = 0x0a,
     CRSF_FRAMETYPE_HEARTBEAT            = 0x0B,  //no need to support? (rev07)
     CRSF_FRAMETYPE_RPM                  = 0x0c,
     CRSF_FRAMETYPE_TEMP                 = 0x0d,
@@ -25,19 +28,19 @@ typedef enum
 
 typedef enum
 {
-    CRSF_ADDRESS_BROADCAST = 0x00,
-    CRSF_ADDRESS_USB = 0x10,
-    CRSF_ADDRESS_TBS_CORE_PNP_PRO = 0x80,
-    CRSF_ADDRESS_RESERVED1 = 0x8A,
-    CRSF_ADDRESS_CURRENT_SENSOR = 0xC0,
-    CRSF_ADDRESS_GPS = 0xC2,
-    CRSF_ADDRESS_TBS_BLACKBOX = 0xC4,
-    CRSF_ADDRESS_FLIGHT_CONTROLLER = 0xC8,
-    CRSF_ADDRESS_RESERVED2 = 0xCA,
-    CRSF_ADDRESS_RACE_TAG = 0xCC,
-    CRSF_ADDRESS_RADIO_TRANSMITTER = 0xEA,
-    CRSF_ADDRESS_CRSF_RECEIVER = 0xEC,
-    CRSF_ADDRESS_CRSF_TRANSMITTER = 0xEE,
+    CRSF_ADDRESS_BROADCAST          = 0x00,
+    CRSF_ADDRESS_USB                = 0x10,
+    CRSF_ADDRESS_TBS_CORE_PNP_PRO   = 0x80,
+    CRSF_ADDRESS_RESERVED1          = 0x8A,
+    CRSF_ADDRESS_CURRENT_SENSOR     = 0xC0,
+    CRSF_ADDRESS_GPS                = 0xC2,
+    CRSF_ADDRESS_TBS_BLACKBOX       = 0xC4,
+    CRSF_ADDRESS_FLIGHT_CONTROLLER  = 0xC8,
+    CRSF_ADDRESS_RESERVED2          = 0xCA,
+    CRSF_ADDRESS_RACE_TAG           = 0xCC,
+    CRSF_ADDRESS_RADIO_TRANSMITTER  = 0xEA,
+    CRSF_ADDRESS_CRSF_RECEIVER      = 0xEC,
+    CRSF_ADDRESS_CRSF_TRANSMITTER   = 0xEE,
 } crsf_addr_e;
 
 #define CRSF_GPS_PAYLOAD_SIZE sizeof(crsf_telemetry_gps_t)
@@ -53,15 +56,15 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint16_t voltage;     // Voltage (V * 10) -> e.g. 126 = 12.6V
     uint16_t current;     // Current (A * 10) -> e.g. 45  = 4.5A
-    uint8_t  capacity[3];    // Fuel/Capacity drawn in mAh (Stored as 3 bytes)
+    uint8_t  capacity[3]; // Fuel/Capacity drawn in mAh (Stored as 3 bytes)
     uint8_t  remaining;   // Remaining battery capacity in % (0 to 100)
 } crsf_telemetry_battery_t;
 
 typedef struct __attribute__((packed)) {
-    int32_t latitude;   // Latitude (Degrees * 10^-7) - Direct mapping from u-blox
-    int32_t longitude;  // Longitude (Degrees * 10^-7) - Direct mapping from u-blox
-    uint16_t ground_speed; // Ground speed (km/h * 10)
-    uint16_t heading;   // GPS heading (Degrees * 100)
-    uint16_t altitude;  // Altitude (meters + 1000m offset)
-    uint8_t satellites; // Number of satellites
+    int32_t  latitude;      // Latitude (Degrees * 10^-7) - Direct mapping from u-blox
+    int32_t  longitude;     // Longitude (Degrees * 10^-7) - Direct mapping from u-blox
+    uint16_t ground_speed;  // Ground speed (km/h * 10)
+    uint16_t heading;       // GPS heading (Degrees * 100)
+    uint16_t altitude;      // Altitude (meters + 1000m offset)
+    uint8_t  satellites;    // Number of satellites
 } crsf_telemetry_gps_t;

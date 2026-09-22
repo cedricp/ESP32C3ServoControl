@@ -10,7 +10,6 @@
 #include "crsf_task.h"
 #include "config.h"
 
-
 SemaphoreHandle_t g_crsf_mutex = NULL;
 extern uint16_t   g_motor_magnets_count;
 
@@ -43,22 +42,22 @@ static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, c
     return (raw >> bit_shift) & 0x07FF;
 }
 
-static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len)
-{
-    uint8_t crc = 0;
-    for (uint8_t i = 0; i < len; i++)
-    {
-        crc ^= ptr[i];
-        for (uint8_t j = 0; j < 8; j++)
-        {
-            if (crc & 0x80)
-                crc = (crc << 1) ^ 0xD5;
-            else
-                crc <<= 1;
-        }
-    }
-    return crc;
-}
+// static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len)
+// {
+//     uint8_t crc = 0;
+//     for (uint8_t i = 0; i < len; i++)
+//     {
+//         crc ^= ptr[i];
+//         for (uint8_t j = 0; j < 8; j++)
+//         {
+//             if (crc & 0x80)
+//                 crc = (crc << 1) ^ 0xD5;
+//             else
+//                 crc <<= 1;
+//         }
+//     }
+//     return crc;
+// }
 
 void crsf_init()
 {
@@ -154,7 +153,7 @@ void crsf_task_rx(void *pvParameters)
             }
 
             // Step 5: CRC check
-            uint8_t computed_crc = crsf_crc8(&buffer[i + 2], packet_len - 1);
+            uint8_t computed_crc = calculate_crc8_crsf(&buffer[i + 2], packet_len - 1);
             if (computed_crc != buffer[frame_end - 1])
             {
                 i++; // CRC failed — this sync byte was not a real frame start
@@ -213,7 +212,7 @@ void send_crsf_volt_array(uint16_t batt1_mv, uint16_t batt2_mv) {
     tx_buffer[6] = (uint8_t)((val2 >> 8) & 0xFF);
     tx_buffer[7] = (uint8_t)(val2 & 0xFF);
 
-    tx_buffer[8] = crsf_crc8(&tx_buffer[2], 6);
+    tx_buffer[8] = calculate_crc8_crsf(&tx_buffer[2], 6);
 
     uart_write_bytes(CRSF_UART_PORT, (const char *)tx_buffer, sizeof(tx_buffer));
 }
@@ -264,7 +263,7 @@ void crsf_send_gps_packet(const crsf_telemetry_gps_t *gps_payload)
     uint8_t crc_start_idx = offsetof(crsf_header_t, frame_type);
     uint8_t crc_length = sizeof(crsf_telemetry_gps_t) + 1; // include type byte
     
-    uint8_t crc = crsf_crc8(&tx_buffer[crc_start_idx], crc_length);
+    uint8_t crc = calculate_crc8_crsf(&tx_buffer[crc_start_idx], crc_length);
     tx_buffer[sizeof(tx_buffer) - 1] = crc;
     
     // 4. Write data to UART
@@ -301,7 +300,7 @@ void crsf_send_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_ti
     payload_ptr[7] = percent;
     
     // 3. Compute Checksum (From frame_type to end of payload = 1 + 8 = 9 bytes)
-    uint8_t crc = crsf_crc8(&tx_buffer[2], 9);
+    uint8_t crc = calculate_crc8_crsf(&tx_buffer[2], 9);
     tx_buffer[11] = crc;
     
     // 4. Send packet over UART
@@ -321,7 +320,7 @@ void crsf_send_temp(int16_t temp_celsius)
     frame[5] = (uint8_t)(temp_celsius & 0xFF);
 
     // CRC calculé sur Type + Payload (du byte 2 au byte 6 inclus = 5 octets)
-    frame[6] = crsf_crc8(&frame[2], 4);
+    frame[6] = calculate_crc8_crsf(&frame[2], 4);
 
     // Envoi sur l'UART de télémétrie
     uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
@@ -342,7 +341,7 @@ void crsf_send_rpm(uint16_t rpm)
     frame[6] = (uint8_t)(rpm & 0xFF);
 
     // CRC calculé sur Type + Payload (du byte 2 au byte 6 inclus = 5 octets)
-    frame[7] = crsf_crc8(&frame[2], 5);
+    frame[7] = calculate_crc8_crsf(&frame[2], 5);
 
     // Envoi UART
     uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
@@ -369,7 +368,7 @@ void crsf_send_attitude(int16_t pitch_deg, int16_t roll_deg, int16_t yaw_deg)
     frame[8] = (uint8_t)(yaw_deg & 0xFF);
 
     // CRC calculé du type jusqu'au dernier octet du Yaw (indices 2 à 8)
-    frame[9] = crsf_crc8(&frame[2], 7);
+    frame[9] = calculate_crc8_crsf(&frame[2], 7);
 
     // Envoi sur l'UART
     uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
