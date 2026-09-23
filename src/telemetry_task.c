@@ -21,27 +21,6 @@ uint32_t last_gps_frame_time = 0;
 uint32_t last_esc_frame_time = 0;
 static battery_type_t g_battery_type = BATTERY_UNKNOWN;
 
-// static inline uint8_t update_crc8(uint8_t crc, uint8_t crc_seed) {
-//     uint8_t i;
-//     crc ^= crc_seed;
-//     for (i = 0; i < 8; i++) {
-//         if (crc & 0x80) {
-//             crc = (crc << 1) ^ 0x07;
-//         } else {
-//             crc <<= 1;
-//         }
-//     }
-//     return crc;
-// }
-
-// static inline uint8_t calculate_crc8_kiss(const uint8_t *buf, uint8_t len) {
-//     uint8_t crc = 0;
-//     for (uint8_t i = 0; i < len; i++) {
-//         crc = update_crc8(crc, buf[i]);
-//     }
-//     return crc;
-// }
-
 inline void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
     *CK_A = *CK_A + cb;
     *CK_B = *CK_B + *CK_A;
@@ -104,7 +83,7 @@ static void process_esc()
     bool kiss_frame_received = false;
     while(1)
     {
-        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(100)) > 0) 
+        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(200)) > 0) 
         {
             frame[frame_idx++] = byte;
             
@@ -128,17 +107,14 @@ static void process_esc()
                         }
                         crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, battery_percentage);
                         crsf_send_temp(esc_telemetry_data.temperature*10);
-                        crsf_send_rpm(esc_telemetry_data.erpm/g_motor_magnets_count/2);
+                        crsf_send_rpm(esc_telemetry_data.erpm/(g_motor_magnets_count/2));
                         last_esc_frame_time = esp_timer_get_time();
+                        return;
                     }
                 }
             }
         }
         else
-        {
-            kiss_frame_received = true;
-        }
-        if (kiss_frame_received)
         {
             break;
         }
@@ -164,7 +140,7 @@ static void process_gps()
     uart_flush_input(GPS_UART_PORT);
     while(1)
     {
-        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(100)) > 0) 
+        if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(200)) > 0) 
         {
             switch (state) {
                 case 0: // Wait Sync 1
@@ -225,14 +201,19 @@ static void process_gps()
                     // Checksum validation
                     if (CK_A == rec_CK_A && CK_B == rec_CK_B) {
                         data_received = true;
+                        // printf("GPS UBX PVT received: Time: %04d-%02d-%02d %02d:%02d:%02d, Lat: %.7f, Lon: %.7f, Alt: %.2f m, FixType: %d, NumSV: %d\n",
+                        //         pvt_data.year, pvt_data.month, pvt_data.day,
+                        //         pvt_data.hour, pvt_data.min, pvt_data.sec,
+                        //         pvt_data.lat / 1e7, pvt_data.lon / 1e7,
+                        //         pvt_data.height / 1000.0, pvt_data.fixType,
+                        //         pvt_data.numSV);
                         if (esp_timer_get_time() - last_gps_frame_time > 100000) { // 100ms
                             forward_gps_to_elrs(&pvt_data, &crsf_gps_data);
                             crsf_send_gps_packet(&crsf_gps_data); 
                             last_gps_frame_time = esp_timer_get_time();
                         }
                     }
-                    state = 0; // Ready for next frame
-                    break;
+                    return;
             }
         }
         else
@@ -248,9 +229,9 @@ static void process_gps()
 
 static void process_attitude()
 {
-    crsf_send_attitude((int16_t)((g_attitude.pitchDeg + g_attitude_correction_rp[0] ) * 100),
-                       (int16_t)((g_attitude.rollDeg  + g_attitude_correction_rp[1]) * 100),
-                       (int16_t)(g_attitude.yawDeg * 100));
+    crsf_send_attitude((int16_t)(g_attitude.pitchDeg * (M_PI / 180.0f) * 10000.0f),
+                       (int16_t)(g_attitude.rollDeg * (M_PI / 180.0f) * 10000.0f),
+                       0);
 }
 
 void telemetry_task(void *pvParameters)

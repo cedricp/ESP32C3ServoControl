@@ -49,6 +49,21 @@ const uint8_t crc8_0xd5_tab[256] = {
     0xD6, 0x03, 0xA9, 0x7C, 0x28, 0xFD, 0x57, 0x82, 0xFF, 0x2A, 0x80, 0x55, 0x01, 0xD4, 0x7E, 0xAB,
     0x84, 0x51, 0xFB, 0x2E, 0x7A, 0xAF, 0x05, 0xD0, 0xAD, 0x78, 0xD2, 0x07, 0x53, 0x86, 0x2C, 0xF9};
 
+typedef struct {
+    uint32_t voltage_mv;
+    uint8_t percent;
+} batt_threshold_t;
+
+static const batt_threshold_t lut_3s[] = {
+    {12550, 100}, {12330, 90}, {12060, 80}, {11850, 70}, {11610, 60},
+    {11520, 50},  {11400, 40}, {11310, 30}, {14920, 20}, {14600, 10}, {0, 0}
+};
+
+static const batt_threshold_t lut_4s[] = {
+    {16500, 100}, {16440, 90}, {16080, 80}, {15800, 70}, {15480, 60},
+    {15360, 50},  {15200, 40}, {15080, 30}, {11190, 20}, {11000, 10}, {0, 0}
+};
+
 const char *reset_reason_to_str(uint8_t reason)
 {
     switch (reason)
@@ -85,10 +100,10 @@ void i2c_bus_recovery(int gpio_sda, int gpio_scl)
     // 1. Configurer SCL et SDA en Open-Drain avec pull-up
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << gpio_scl) | (1ULL << gpio_sda),
-        .mode = GPIO_MODE_INPUT_OUTPUT_OD,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .mode         = GPIO_MODE_INPUT_OUTPUT_OD,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
     };
     gpio_config(&io_conf);
 
@@ -124,22 +139,22 @@ void i2c_bus_recovery(int gpio_sda, int gpio_scl)
 
     if (gpio_get_level(gpio_sda) == 0)
     {
-        ESP_LOGE(TAG_I2C, "SDA toujours bloqué à 0 après récupération !");
+        ESP_LOGE(TAG_I2C, "SDA still locked after recovery !");
     }
     else
     {
-        ESP_LOGI(TAG_I2C, "Bus I2C débloqué avec succès.");
+        ESP_LOGI(TAG_I2C, "I2C bus unlocked successfully.");
     }
 }
 
 void check_i2c(int gpio_sda, int gpio_scl)
 {
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << gpio_sda),
-        .mode = GPIO_MODE_INPUT,          // simple lecture, pas encore open-drain
-        .pull_up_en = GPIO_PULLUP_ENABLE, // au cas où le pull-up externe serait faible/absent
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask   = (1ULL << gpio_sda),
+        .mode           = GPIO_MODE_INPUT,          // simple lecture, pas encore open-drain
+        .pull_up_en     = GPIO_PULLUP_ENABLE, // au cas où le pull-up externe serait faible/absent
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE,
     };
     gpio_config(&io_conf);
 
@@ -178,7 +193,6 @@ esp_err_t nvs_save_struct(const char *key, const void *data, size_t size)
     return err;
 }
 
-// --- CHARGER UNE STRUCTURE DEPUIS LA NVS ---
 esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
 {
     nvs_handle_t handle = 0;
@@ -210,113 +224,23 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
 
 uint8_t calcBatteryPercentage(battery_type_t battery_type, uint32_t voltage_main)
 {
-  if (battery_type == BATTERY_4S)
-  {
-    // 4S LiPo: 16.8V full, 13.08V empty
-    if (voltage_main > 16500)
-    {
-      return 100;
-    }
-    else if (voltage_main > 16440)
-    {
-      return 90;
-    }
-    else if (voltage_main > 16080)
-    {
-      return 80;
-    }
-    else if (voltage_main > 15800)
-    {
-      return 70;
-    }
-    else if (voltage_main > 15480)
-    {
-      return 60;
-    }
-    else if (voltage_main > 15360)
-    {
-      return 50;
-    }
-    else if (voltage_main > 15200)
-    {
-      return 40;
-    }
-    else if (voltage_main > 15080)
-    {
-      return 30;
-    }
-    else if (voltage_main > 14920)
-    {
-      return 20;
-    }
-    else if (voltage_main > 14600)
-    {
-      return 10;
-    }
-    else
-    {
-      return 0;
+  const batt_threshold_t *lut = (battery_type == BATTERY_3S) ? lut_3s : lut_4s;
+  
+  if (battery_type == BATTERY_UNKNOWN) return 0;
+
+  for (int i = 0; i < 11; i++) {
+    if (voltage_main >= lut[i].voltage_mv) {
+      return lut[i].percent;
     }
   }
-  else if (battery_type == BATTERY_3S)
-  {
-    // 3S LiPo: 12.6V full, 9.81V empty
-    if (voltage_main > 12550)
-    {
-      return 100;
-    }
-    else if (voltage_main > 12330)
-    {
-      return 90;
-    }
-    else if (voltage_main > 12060)
-    {
-      return 80;
-    }
-    else if (voltage_main > 11850)
-    {
-      return 70;
-    }
-    else if (voltage_main > 11610)
-    {
-      return 60;
-    }
-    else if (voltage_main > 11520)
-    {
-      return 50;
-    }
-    else if (voltage_main > 11400)
-    {
-      return 40;
-    }
-    else if (voltage_main > 11310)
-    {
-      return 30;
-    }
-    else if (voltage_main > 11190)
-    {
-      return 20;
-    }
-    else if (voltage_main > 11000)
-    {
-      return 10;
-    }
-    else
-    {
-      return 0;
-    }
-  }
-  else
-  {
-    return 0; // Unknown battery type, cannot estimate percentage
-  }
+  return 0;
 }
 
 battery_type_t identifyBatteryType(uint32_t voltage_main)
 {
   // Simple heuristic based on voltage_main to determine battery type
   if (voltage_main > 14000)
-  { // >14V likely a 4S LiPo
+  { // >14V is likely a 4S LiPo
     return BATTERY_4S;
   }
   else if (voltage_main > 10800)

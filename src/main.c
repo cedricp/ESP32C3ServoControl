@@ -366,6 +366,29 @@ static void servo_pwm_init()
     }
 }
 
+static inline bool shock_detector(gyro_data_t* gyro_data)
+{
+    static float prev_ax = 0.0f, prev_ay = 0.0f, prev_az = 0.0f;
+
+    // 1. Acceleration delta
+    const float d_ax = gyro_data->raw_ax - prev_ax;
+    const float d_ay = gyro_data->raw_ay - prev_ay;
+    const float d_az = (gyro_data->raw_az - prev_az) * 0.7f; // Lower Z for landing protection
+
+    // Update for next cycle
+    prev_ax = gyro_data->raw_ax;
+    prev_ay = gyro_data->raw_ay;
+    prev_az = gyro_data->raw_az;
+
+    const float jerk_factor = (d_ax * d_ax) + (d_ay * d_ay) + (d_az * d_az);
+
+    const float gyro_sq = (gyro_data->ax * gyro_data->ax) + 
+                          (gyro_data->ay * gyro_data->ay) + 
+                          (gyro_data->az * gyro_data->az);
+
+    return (jerk_factor > g_crash_g_threshold) || (jerk_factor > (g_crash_g_threshold * 0.4f) && gyro_sq > (480.0f*480.0f));
+}
+
 // ==========================================
 // Servo managemenent task
 // ==========================================
@@ -520,14 +543,10 @@ void servo_update_task(void *pvParameters)
             gyro_failsafe = true;
         }
 
-        // Shock detection, if something is hit (propeller maybe?), cut off the motor to avoid further damage
-        const float az            = gyro_data.raw_az * 0.7f; // decrease Z axis sensitivity to avoid false positives on landing
-        const float shock_factor  = gyro_data.raw_ax * gyro_data.raw_ax + gyro_data.raw_ay * gyro_data.raw_ay + az * az;
-        const bool shock_detected = shock_factor > g_crash_g_threshold;
         rx_data.us_values[CHANNEL_THROTTLE] = apply_motor_thermal_protection(rx_data.us_values[CHANNEL_THROTTLE]);
         
         // Check ESC temperature and apply thermal protection if necessary
-        rx_data.us_values[CHANNEL_THROTTLE] = process_motor_safety(rx_data.us_values[CHANNEL_THROTTLE], shock_detected);
+        rx_data.us_values[CHANNEL_THROTTLE] = process_motor_safety(rx_data.us_values[CHANNEL_THROTTLE], shock_detector(&gyro_data));
 
         if (!g_elrs_armed)
         {
@@ -562,7 +581,12 @@ void servo_update_task(void *pvParameters)
                 // --- WORST CASE SCENARIO : FAILSAFE MODE IF GYRO AND RADIO ARE NOT WORKING ---
                 for (int i = 0; i < NUM_PWM_OUPUTS; i++)
                 {
-                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(g_failsafe_us[i]));
+                    uint16_t us = g_failsafe_us[i];
+                    if (g_invert_channel[i])
+                    {
+                        us = 3000 - us;
+                    }
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, us_to_ledc_duty(us));
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
                 }
             }
@@ -609,7 +633,7 @@ void app_main(void)
     xTaskCreate(crsf_task_rx,         "crsf_rx",     2048, NULL, 15, &crsf_rx_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl",  4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_supervisor_task, "gyro_sv",     2048, NULL, 21, &gyro_sv_task_handle);
-    xTaskCreate(telemetry_task,             "tlm_task",    4096, NULL, 10, &telemetry_task_handle);
+    xTaskCreate(telemetry_task,       "tlm_task",    4096, NULL, 10, &telemetry_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)

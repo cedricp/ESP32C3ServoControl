@@ -42,23 +42,6 @@ static inline uint16_t __attribute__((always_inline)) crsf_get_channel(int ch, c
     return (raw >> bit_shift) & 0x07FF;
 }
 
-// static inline uint8_t __attribute__((always_inline)) crsf_crc8(const uint8_t *ptr, uint8_t len)
-// {
-//     uint8_t crc = 0;
-//     for (uint8_t i = 0; i < len; i++)
-//     {
-//         crc ^= ptr[i];
-//         for (uint8_t j = 0; j < 8; j++)
-//         {
-//             if (crc & 0x80)
-//                 crc = (crc << 1) ^ 0xD5;
-//             else
-//                 crc <<= 1;
-//         }
-//     }
-//     return crc;
-// }
-
 void crsf_init()
 {
     g_crsf_mutex = xSemaphoreCreateMutex();
