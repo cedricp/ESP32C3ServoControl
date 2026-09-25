@@ -275,10 +275,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_ouput_mapping[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel4");
-    if (item && NUM_PWM_OUPUTS > 4)
+    if (item && NUM_PWM_OUPUTS > 3)
         g_ouput_mapping[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel5");
-    if (item && NUM_PWM_OUPUTS > 5)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_ouput_mapping[5] = item->valueint;
 
 
@@ -295,10 +295,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_invert_channel[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert4");
-    if (item && NUM_PWM_OUPUTS > 4)
+    if (item && NUM_PWM_OUPUTS > 3)
         g_invert_channel[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert5");
-    if (item && NUM_PWM_OUPUTS > 5)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_invert_channel[5] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "failsafe0");
@@ -314,10 +314,10 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
     if (item)
         g_failsafe_us[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe4");
-    if (item && NUM_PWM_OUPUTS > 4)
+    if (item && NUM_PWM_OUPUTS > 3)
         g_failsafe_us[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe5");
-    if (item && NUM_PWM_OUPUTS > 5)
+    if (item && NUM_PWM_OUPUTS > 4)
         g_failsafe_us[5] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "motor_magnets");
@@ -393,9 +393,9 @@ esp_err_t config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(json, "invert_channel1", g_invert_channel[1]);
     cJSON_AddBoolToObject(json, "invert_channel2", g_invert_channel[2]);
     cJSON_AddBoolToObject(json, "invert_channel3", g_invert_channel[3]);
-    if (NUM_PWM_OUPUTS > 4)
+    if (NUM_PWM_OUPUTS > 3)
         cJSON_AddBoolToObject(json, "invert_channel4", g_invert_channel[4]);
-    if (NUM_PWM_OUPUTS > 5)
+    if (NUM_PWM_OUPUTS > 4)
         cJSON_AddBoolToObject(json, "invert_channel5", g_invert_channel[5]);
 
     cJSON_AddBoolToObject(json, "invertax", g_invert_accel[0]);

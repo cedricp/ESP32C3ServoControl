@@ -99,11 +99,11 @@ static void process_esc()
                         uint8_t battery_percentage = 0;
                         if (g_battery_type == BATTERY_UNKNOWN)
                         {
-                            g_battery_type = identifyBatteryType(esc_telemetry_data.voltage_mv);
+                            g_battery_type = identify_battery_type(esc_telemetry_data.voltage_mv);
                         }
                         else
                         {
-                            battery_percentage = calcBatteryPercentage(g_battery_type, esc_telemetry_data.voltage_mv);
+                            battery_percentage = get_battery_percentage(g_battery_type, esc_telemetry_data.voltage_mv);
                         }
                         crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, battery_percentage);
                         crsf_send_temp(esc_telemetry_data.temperature*10);
@@ -135,6 +135,7 @@ static void process_gps()
     uint8_t rec_CK_A = 0, rec_CK_B = 0;
     bool data_received = false;
     crsf_telemetry_gps_t crsf_gps_data;
+    memset(&crsf_gps_data, 0, sizeof(crsf_telemetry_gps_t));
 
     uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, GPS_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
     uart_flush_input(GPS_UART_PORT);

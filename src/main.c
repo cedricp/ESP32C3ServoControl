@@ -326,12 +326,13 @@ inline static uint32_t process_motor_safety(uint32_t current_throttle_us, bool s
 
 inline static uint16_t apply_motor_thermal_protection(uint16_t pwm_value)
 {
-    if (g_esc_temperature > 85)
-    {
-        return clampui(pwm_value, 1500, 2000);
-    } else if (g_esc_temperature > 95)
+    if (g_esc_temperature > 95)
     {
         return clampui(pwm_value, 1300, 2000);
+    }
+    else if (g_esc_temperature > 85)
+    {
+        return clampui(pwm_value, 1500, 2000);
     }
     return pwm_value;
 }

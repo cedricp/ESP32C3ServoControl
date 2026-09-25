@@ -192,5 +192,5 @@ void check_i2c(int gpio_sda, int gpio_scl);
 esp_err_t nvs_save_struct(const char *key, const void *data, size_t size);
 esp_err_t nvs_load_struct(const char *key, void *data, size_t size);
 
-uint8_t calcBatteryPercentage(battery_type_t battery_type, uint32_t voltage_main);
-battery_type_t identifyBatteryType(uint32_t voltage_main);
+uint8_t get_battery_percentage(battery_type_t battery_type, uint32_t voltage_main);
+battery_type_t identify_battery_type(uint32_t voltage_main);

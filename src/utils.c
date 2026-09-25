@@ -222,7 +222,7 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
     return err;
 }
 
-uint8_t calcBatteryPercentage(battery_type_t battery_type, uint32_t voltage_main)
+uint8_t get_battery_percentage(battery_type_t battery_type, uint32_t voltage_main)
 {
   const batt_threshold_t *lut = (battery_type == BATTERY_3S) ? lut_3s : lut_4s;
   
@@ -236,7 +236,7 @@ uint8_t calcBatteryPercentage(battery_type_t battery_type, uint32_t voltage_main
   return 0;
 }
 
-battery_type_t identifyBatteryType(uint32_t voltage_main)
+battery_type_t identify_battery_type(uint32_t voltage_main)
 {
   // Simple heuristic based on voltage_main to determine battery type
   if (voltage_main > 14000)
