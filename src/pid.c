@@ -177,10 +177,15 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
     float q0 = mahony.q0, q1 = mahony.q1, q2 = mahony.q2, q3 = mahony.q3;
     float norm;
 
-    // 1. Normalisation de l'accéléromètre
+    // Convert degrees to radians
+    gx *=  DEG_TO_RAD;
+    gy *=  DEG_TO_RAD;
+    gz *=  DEG_TO_RAD;
+
+    // Accel normalization
     norm = ax * ax + ay * ay + az * az;
 
-    // Weighting the KP term to avoid instability
+    // Weighting the KP term to avoid instability (accelerometer confidence)
     const float deviation = fast_fabsf(norm - 1.0f);
     float weight = 1.0f - (deviation * 2.0f);
     if (weight < 0.0f) weight = 0.0f;
@@ -193,17 +198,17 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
         ay *= norm;
         az *= norm;
 
-        // 2. Estimation de la direction de la gravité (Vecteur Z monde projeté dans le corps)
+        // Gravity estimation (Z axis)
         float vx = 2.0f * (q1 * q3 - q0 * q2);
         float vy = 2.0f * (q0 * q1 + q2 * q3);
         float vz = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
 
-        // 3. Calcul du produit vectoriel d'erreur (a x v)
+        // Cross product of error (a x v)
         float ex = (ay * vz - az * vy);
         float ey = (az * vx - ax * vz);
         float ez = (ax * vy - ay * vx);
 
-        // 4. Correction intégrale (avec anti-windup simple)
+        // Integral correcion (simple anti-windup)
         if (MAHONY_KI > 0.0f)
         {
             mahony.ix += ex * MAHONY_KI * dt;
@@ -221,14 +226,13 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
             mahony.iz = 0.0f;
         }
 
-        // 5. Correction proportionnelle
+        // Proportionnal correction
         gx += kp_effective * ex;
         gy += kp_effective * ey;
         gz += kp_effective * ez;
     }
 
-    // 6. Intégration du quaternion (Formule exacte d'Euler)
-    // Note : gx, gy, gz DOIVENT ETRE EN RAD/S
+    // Quaternion integration (Euler formula)
     float ha = 0.5f * gx * dt;
     float hb = 0.5f * gy * dt;
     float hc = 0.5f * gz * dt;
@@ -240,7 +244,7 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
     q2 += ( qa * hb - qb * hc + qd * ha);
     q3 += ( qa * hc + qb * hb - qc * ha);
 
-    // 7. Normalisation du quaternion
+    // Quaternion normalization
     norm = fast_inv_sqrtf(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
     mahony.q0 = q0 * norm;
     mahony.q1 = q1 * norm;
@@ -266,15 +270,15 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
     {
         attidude->pitchDeg = fast_asinf(sinp) * RAD_TO_DEG;
     }
-    // Yaw (cap) : -180° à +180° (dérive sans magnétomètre, mais utilisable en relatif)
-    // *yaw = fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)) * RAD_TO_DEG;
+    // Yaw : -180° to +180° (can drift without magnetometer, OK in relative)
+    // attidude->yawDeg = fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)) * RAD_TO_DEG;
 }
 
 void init_attitude(attitude_t *attitude, float ax, float ay, float az)
 {
     float accelNorm = fast_sqrtf(ay * ay + az * az);
 
-    // Initialisation directe basée sur la gravité au sol
+    // Init with gravity vector
     attitude->rollDeg  = fast_atan2f(ay, az) * RAD_TO_DEG;
     attitude->pitchDeg = (accelNorm > 0.001f)
                              ? fast_atan2f(-ax, accelNorm) * RAD_TO_DEG

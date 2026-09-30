@@ -58,16 +58,11 @@ bool        g_elrs_data_valid = false;
 float       g_crash_g_threshold = 16.f;
 volatile uint32_t g_esc_temperature = 0;
 
-
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_rx_task_handle = NULL;
-TaskHandle_t crsf_tx_task_handle = NULL;
 TaskHandle_t actions_task_handle = NULL;
-TaskHandle_t power_task_handle = NULL;
 TaskHandle_t telemetry_task_handle = NULL;
-TaskHandle_t esc_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle = NULL;
-
 
 PID_Config_t *get_pid_roll(void)
 {
@@ -281,11 +276,10 @@ void actions_task(void *pvParameters)
     }
 }
 
-static inline uint16_t compute_axis_pwm(PID_Config_t *pid, float stick_norm, float gyro_value, float gyro_value_low, float master_kp_gain, float master_kd_gain, float dt)
+static inline uint16_t compute_axis_pwm(PID_Config_t *pid, float stick_normalized, float gyro_value, float gyro_value_low, float master_kp_gain, float master_kd_gain, float dt)
 {
-    float targetRate        = stick_norm *  pid->maxRateDegs;//mapStickToRate(stick_us, pid->maxRateDegs, 0);
-    //float stickInput        = nomalise_stick(stick_us);
-    float axis_correction   = compute_axis_pid(stick_norm, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kd_gain, pid, 1);
+    float targetRate        = stick_normalized *  pid->maxRateDegs;
+    float axis_correction   = clampf(compute_axis_pid(stick_normalized, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kd_gain, pid, 1), -1.0f, 1.0f);
     
     return map_to_pwm(axis_correction);
 }
@@ -328,11 +322,11 @@ inline static uint16_t apply_motor_thermal_protection(uint16_t pwm_value)
 {
     if (g_esc_temperature > 95)
     {
-        return clampui(pwm_value, 1300, 2000);
+        return clampui(pwm_value, 1000, 1500);
     }
     else if (g_esc_temperature > 85)
     {
-        return clampui(pwm_value, 1500, 2000);
+        return clampui(pwm_value, 1000, 1800);
     }
     return pwm_value;
 }
@@ -390,6 +384,18 @@ static inline bool shock_detector(gyro_data_t* gyro_data)
     return (jerk_factor > g_crash_g_threshold) || (jerk_factor > (g_crash_g_threshold * 0.4f) && gyro_sq > (480.0f*480.0f));
 }
 
+static inline void instant_horizontal_trim(uint16_t channel_value)
+{
+    static bool on = false;
+    if (channel_value> 1600 && !on)
+    {
+        on = true;
+        calibrate_pitch();
+    } else {
+        on = false;
+    }
+}
+
 // ==========================================
 // Servo managemenent task
 // ==========================================
@@ -442,6 +448,11 @@ void servo_update_task(void *pvParameters)
 
         get_servo_data(&rx_data);
 
+        if (gyro_data.valid)
+        {
+            instant_horizontal_trim(rx_data.us_values[8]);
+        }
+
         g_elrs_data_valid = rx_data.valid;
 
         if (rx_data.valid)
@@ -479,7 +490,7 @@ void servo_update_task(void *pvParameters)
         {
 #ifdef LEVEL_MODE_MAHONY
             // ~70us execution time
-            mahony_update(gyro_data.rot_x * DEG_TO_RAD, gyro_data.rot_y * DEG_TO_RAD, gyro_data.rot_z * DEG_TO_RAD, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
+            mahony_update(gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
 #else
             compute_attitude(&g_attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
 #endif

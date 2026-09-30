@@ -200,8 +200,9 @@ inline uint16_t __attribute__((always_inline)) clampui(uint16_t value, uint16_t 
 
 inline uint16_t __attribute__((always_inline)) map_to_pwm(float x)
 {
-    return (uint16_t)((x + 1.0f) * 500.0f + 1000.0f);
+    return (uint16_t)(x * 500.0f + 1500.0f);
 }
+
 const char *reset_reason_to_str(uint8_t reason);
 void check_i2c(int gpio_sda, int gpio_scl);
 
