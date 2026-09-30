@@ -230,8 +230,8 @@ static void process_gps()
 
 static void process_attitude()
 {
-    crsf_send_attitude((int16_t)(g_attitude.pitchDeg * (M_PI / 180.0f) * 10000.0f),
-                       (int16_t)(g_attitude.rollDeg * (M_PI / 180.0f) * 10000.0f),
+    crsf_send_attitude((int16_t)((g_attitude.pitchDeg + g_attitude_correction_rp[1]) * (M_PI / 180.0f) * 10000.0f),
+                       (int16_t)((g_attitude.rollDeg + g_attitude_correction_rp[0]) * (M_PI / 180.0f) * 10000.0f),
                        0);
 }
 

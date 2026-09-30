@@ -48,6 +48,7 @@ typedef enum
 typedef struct
 {
     uint16_t us_values[NUM_CRSF_CHANNELS];
+    float  values_norm[NUM_CRSF_CHANNELS];
     char valid;
 } servo_data_t;
 
@@ -162,6 +163,21 @@ inline float __attribute__((always_inline)) fast_asinf(float x)
     float res = 1.57079632679f - fast_sqrtf(1.0f - abs_x) * poly;
 
     return (x < 0.0f) ? -res : res;
+}
+
+inline float __attribute__((always_inline)) fast_cosf(float x) {
+    // Convert cos(x) = sin(x + PI/2)
+    x += (M_PI / 2.0f);
+    
+    if (x > M_PI)  x -= (2.0f*M_PI);
+
+    const float B = (4.0f / M_PI);
+    const float C = -4.0f / (M_PI*M_PI); // -4/(PI^2)
+
+    float y = B * x + C * x * ((x < 0) ? -x : x);
+
+    const float P = 0.225f;
+    return P * (y * ((y < 0) ? -y : y) - y) + y;
 }
 
 inline float __attribute__((always_inline)) clampf(float value, float min, float max)

@@ -6,7 +6,7 @@
 #define CRSF_TX_PIN         GPIO_NUM_4
 #define CRSF_BAUD_RATE      420000
 #define CRSF_TIMEOUT_MS     250
-#define NUM_CRSF_CHANNELS   8
+#define NUM_CRSF_CHANNELS   12
 
 // GPS UART configuration
 #define GPS_UART_PORT      UART_NUM_1
