@@ -127,6 +127,7 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
     }
 
     // Pointer to current answer and question
+    int answered = 0;
     char *cur_ans_ptr = dns_reply + req_len;
     char *cur_qd_ptr = dns_reply + sizeof(dns_header_t);
     char name[128];
@@ -185,9 +186,12 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
 
             answer->addr_len = htons(sizeof(ip.addr));
             answer->ip_addr = ip.addr;
+            cur_ans_ptr += sizeof(dns_answer_t);
+            answered++;
         }
     }
-    return reply_len;
+    header->an_count = htons(answered);
+    return reply_len + answered * sizeof(dns_answer_t);;
 }
 
 /*

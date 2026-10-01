@@ -60,12 +60,6 @@ void crsf_init()
     uart_set_pin(CRSF_UART_PORT, CRSF_TX_PIN, CRSF_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
 }
 
-static inline float crsf_to_norm(uint16_t crsf_val) {
-    float norm = ((float)crsf_val - 992.0f) * (1.0f / 800.0f);
-
-    return clampf(norm, -1.0f, 1.0f);
-}
-
 // ==========================================
 // CROSSFIRE UART task
 // ==========================================
@@ -156,10 +150,10 @@ void crsf_task_rx(void *pvParameters)
             tx_data.valid = 1;
             for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++)
             {
-                const uint16_t value = crsf_get_channel(ch, payload);
-                const float normalized = crsf_to_norm(value);
-                tx_data.values_norm[ch] = normalized;
-                tx_data.us_values[ch] = (normalized) * 500.f + 1500.f;
+                const int16_t crsf_value = clampui(crsf_get_channel(ch, payload), 174, 1811);
+                const int16_t pwm_us = (crsf_value - 992) * 5 >> 3;
+                tx_data.values_norm[ch]  = pwm_us * (1.0f / 500.0f);
+                tx_data.us_values[ch]    = 1500 + pwm_us;
             }
             if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
                 g_servo_data = tx_data;

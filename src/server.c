@@ -21,7 +21,7 @@ static httpd_handle_t g_server_handle = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
 static esp_netif_t *esp_netif_handle = NULL;
 
-#define WIFI_SSID "ESP_FLIGHT_CON"
+#define WIFI_SSID "FLIGHT_STAB"
 
 extern attitude_t   g_attitude;
 extern int          g_master_kp_gain_channel;
@@ -70,6 +70,16 @@ static void dhcp_set_captiveportal_url(void)
     // get a handle to configure DHCP with
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 
+    esp_netif_dns_info_t dns = {0};
+    dns.ip.type = ESP_IPADDR_TYPE_V4;
+    dns.ip.u_addr.ip4.addr = ip_info.ip.addr;
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif));
+    ESP_ERROR_CHECK(esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns));
+    uint8_t offer_dns = 1; // OFFER_DNS
+    ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET,
+                    ESP_NETIF_DOMAIN_NAME_SERVER, &offer_dns, sizeof(offer_dns)));
+    
     // set the DHCP option 114
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif));
     ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, captiveportal_uri, strlen(captiveportal_uri)));
@@ -432,12 +442,10 @@ esp_err_t config_get_handler(httpd_req_t *req)
 static esp_err_t generate_204_handler(httpd_req_t *req)
 {
     ESP_LOGI("HTTP", "generate_204 request: %s", req->uri);
-    httpd_resp_set_status(req, "200 OK");
-    httpd_resp_set_type(req, "text/html");
-    const char *body =
-        "<!DOCTYPE html><html><head><title>Login</title></head>"
-        "<body>Login required</body></html>";
-    httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/");
+    // iOS requires content in the response to detect a captive portal, simply redirecting is not sufficient.
+    httpd_resp_send(req, "Redirect to the captive portal", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 
@@ -482,7 +490,7 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
     cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    cJSON_AddNumberToObject(root, "att_roll", g_attitude.rollDeg + g_attitude_correction_rp[0]);
+    cJSON_AddNumberToObject(root, "att_roll",  g_attitude.rollDeg + g_attitude_correction_rp[0]);
     cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + g_attitude_correction_rp[1]);
 
     const char *json_response = cJSON_PrintUnformatted(root);
@@ -554,6 +562,14 @@ void start_webserver(void)
     }
 
     esp_netif_handle = esp_netif_create_default_wifi_ap();
+
+    esp_netif_ip_info_t ip_info = {0};
+    IP4_ADDR(&ip_info.ip,      4, 3, 2, 1);
+    IP4_ADDR(&ip_info.gw,      4, 3, 2, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(esp_netif_handle));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(esp_netif_handle, &ip_info));
 
     wifi_init_softap();
 

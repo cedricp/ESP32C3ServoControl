@@ -80,7 +80,7 @@ static void process_esc()
 
     uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, ESC_RX_GPIO, GPIO_NUM_NC, GPIO_NUM_NC);
     uart_flush_input(GPS_UART_PORT);
-    bool kiss_frame_received = false;
+    
     while(1)
     {
         if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(200)) > 0) 
@@ -94,7 +94,6 @@ static void process_esc()
             if (frame_idx >= 10) {
                 int offset = frame_idx - 10;
                 if (parse_kiss_frame(frame + offset, &esc_telemetry_data)) {
-                    kiss_frame_received = true;
                     if (esp_timer_get_time() - last_esc_frame_time > 100000) { // 100ms
                         uint8_t battery_percentage = 0;
                         if (g_battery_type == BATTERY_UNKNOWN)
