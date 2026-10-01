@@ -293,7 +293,7 @@ void crsf_send_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_ti
     uart_write_bytes(CRSF_UART_PORT, (const char *)tx_buffer, sizeof(tx_buffer));
 }
 
-void crsf_send_temp(int16_t temp_celsius)
+void crsf_send_temp(int16_t temp_celsius, int sensor_id)
 {
     uint8_t frame[7];
 
@@ -301,7 +301,7 @@ void crsf_send_temp(int16_t temp_celsius)
     frame[1] = 5;                              // Payload 
     frame[2] = CRSF_FRAMETYPE_TEMP;            // 0x0D
 
-    frame[3] = 0; // temp ID
+    frame[3] = (uint8_t)sensor_id; // temp ID
     frame[4] = (uint8_t)((temp_celsius >> 8) & 0xFF);
     frame[5] = (uint8_t)(temp_celsius & 0xFF);
 

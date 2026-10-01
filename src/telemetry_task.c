@@ -13,6 +13,7 @@
 #include "pid.h"
 
 extern volatile uint32_t g_esc_temperature;
+extern volatile int16_t  g_gyro_temperature;
 extern uint16_t    g_motor_magnets_count;
 extern attitude_t  g_attitude;
 extern float       g_attitude_correction_rp[2];
@@ -105,7 +106,7 @@ static void process_esc()
                             battery_percentage = get_battery_percentage(g_battery_type, esc_telemetry_data.voltage_mv);
                         }
                         crsf_send_battery_packet(esc_telemetry_data.voltage_mv / 100, esc_telemetry_data.current_ma / 100, esc_telemetry_data.mah, battery_percentage);
-                        crsf_send_temp(esc_telemetry_data.temperature*10);
+                        crsf_send_temp(esc_telemetry_data.temperature*10, 1);
                         crsf_send_rpm(esc_telemetry_data.erpm/(g_motor_magnets_count/2));
                         last_esc_frame_time = esp_timer_get_time();
                         return;
@@ -240,6 +241,7 @@ void telemetry_task(void *pvParameters)
         process_esc();
         process_gps();
         process_attitude();
+        crsf_send_temp(g_gyro_temperature, 0);
     }
 }
 

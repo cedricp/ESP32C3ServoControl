@@ -39,6 +39,8 @@
 #define GYRO_LOW_CUTOFF_FREQ 15.0f
 #define ACCEL_CUTOFF_FREQ    5.0f
 
+#define MPU6500_TEMP_INV_SENSITIVITY (1.0f / 333.87f)
+
 #ifdef  GYRO_1KHZ
 #define GYRO_DT 0.001f // 1ms
 #define MPU_SR_DIV 0
@@ -59,6 +61,7 @@ typedef struct
 {
     float rot_x, rot_y, rot_z; // deg/s
     float ax, ay, az;          // m/s^2
+    float temp;                // °C
     char valid;
 } gyro_t;
 
@@ -181,6 +184,9 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
     out->ax = ax;
     out->ay = ay;
     out->az = az;
+    
+    int16_t raw_temp = (int16_t)(buffer[6] << 8) | buffer[7];
+    out->temp = ((float)raw_temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f;
 
     return ESP_OK;
 }
@@ -368,6 +374,8 @@ void gyro_control_task(void *pvParameters)
             local_gyro_data.az        = g_invert_accel[2] ? -cleanAz : cleanAz;
 
             local_gyro_data.valid     = valid;
+
+            local_gyro_data.temp      = gyro_data.temp;
 
             if (xSemaphoreTake(g_gyro_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
             {

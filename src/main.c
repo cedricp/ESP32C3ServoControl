@@ -57,6 +57,7 @@ bool        g_elrs_armed = false;
 bool        g_elrs_data_valid = false;
 float       g_crash_g_threshold = 16.f;
 volatile uint32_t g_esc_temperature = 0;
+volatile int16_t g_gyro_temperature = 0;
 
 TaskHandle_t servo_task_handle = NULL;
 TaskHandle_t crsf_rx_task_handle = NULL;
@@ -451,6 +452,7 @@ void servo_update_task(void *pvParameters)
         if (gyro_data.valid)
         {
             instant_horizontal_trim(rx_data.us_values[8]);
+            g_gyro_temperature = (int16_t)(gyro_data.temp * 10.0f);
         }
 
         g_elrs_data_valid = rx_data.valid;
