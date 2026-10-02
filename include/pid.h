@@ -4,23 +4,23 @@ typedef struct {
     float Kp;           // Gain Proportionnel (réponse immédiate à l'erreur)
     float Ki;           // Gain Intégral (corrige les dérives lentes)
     float Kd;           // Gain Dérivé (amortit les oscillations)
-    float maxRateDegs;  // Vitesse de rotation maximale (ex: 250.0 deg/s)
-    int invert;        // Inversion du signal de rotation
-    char checksum;
-    float integralAcc;  // Accumulateur de l'erreur intégrale
-    float prevMeasuredRate;
+    float max_rate_degs;  // Vitesse de rotation maximale (ex: 250.0 deg/s)
+    int   invert;        // Inversion du signal de rotation
+    char  checksum;
+    float integral_acc;  // Accumulateur de l'erreur intégrale
+    float prev_measured_rate;
 } PID_Config_t;
 
 typedef struct  {
-    float rollDeg; // Inclinaison en Roulis (-180° à +180°)
-    float pitchDeg; // Inclinaison en Tangage (-90° à +90°)
-    float yawDeg; // Orientation en Lacet (0° à 360°)
+    float roll_deg; // Inclinaison en Roulis (-180° à +180°)
+    float pitch_deg; // Inclinaison en Tangage (-90° à +90°)
+    float yaw_deg; // Orientation en Lacet (0° à 360°)
 } attitude_t;
 
-float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float master_kp_gain, float master_kd_gain, PID_Config_t *pid, char useStickFactor);
+float compute_axis_pid(float stick_input, float target_rate, float measured_rate, float measured_rate_low, float dt, float master_kp_gain, float master_kd_gain, PID_Config_t *pid, char use_stick_factor);
 float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us);
-void  compute_attitude(attitude_t *attitude, float ax, float ay, float az, float gyroRollDegS, float gyroPitchDegS, float dt);
-void  mahony_get_euler(attitude_t* attidude);
+void  compute_attitude(attitude_t *attitude, float ax, float ay, float az, float gyro_roll_deg_s, float gyro_pitch_deg_s, float dt);
+void  mahony_get_euler(attitude_t* attitude);
 void  mahony_update(float gx, float gy, float gz, float ax, float ay, float az, float dt);
 void  init_attitude(attitude_t *attitude, float ax, float ay, float az);
 

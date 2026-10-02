@@ -88,13 +88,13 @@ static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t u
 
 void calibrate_roll(void)
 {
-    g_attitude_correction_rp[0] = -g_attitude.rollDeg;
+    g_attitude_correction_rp[0] = -g_attitude.roll_deg;
     nvs_save_struct("attitude_corr", &g_attitude_correction_rp, sizeof(g_attitude_correction_rp));
 }
 
 void calibrate_pitch(void)
 {
-    g_attitude_correction_rp[1] = -g_attitude.pitchDeg;
+    g_attitude_correction_rp[1] = -g_attitude.pitch_deg;
     nvs_save_struct("attitude_corr", &g_attitude_correction_rp, sizeof(g_attitude_correction_rp));
 }
 
@@ -103,16 +103,16 @@ static inline bool is_elrs_armed()
     return g_elrs_armed;
 }
 
-static void init_pid(PID_Config_t *pid, float Kp, float Ki, float Kd, float maxRateDegs, bool invert)
+static void init_pid(PID_Config_t *pid, float Kp, float Ki, float Kd, float max_rate_degs, bool invert)
 {
     pid->Kp = Kp;
     pid->Ki = Ki;
     pid->Kd = Kd;
 
-    pid->maxRateDegs = maxRateDegs;
+    pid->max_rate_degs = max_rate_degs;
     pid->invert      = invert;
-    pid->integralAcc = 0.0f;
-    pid->prevMeasuredRate = 0.0f;
+    pid->integral_acc = 0.0f;
+    pid->prev_measured_rate = 0.0f;
 }
 
 void save_pid_config()
@@ -279,8 +279,8 @@ void actions_task(void *pvParameters)
 
 static inline uint16_t compute_axis_pwm(PID_Config_t *pid, float stick_normalized, float gyro_value, float gyro_value_low, float master_kp_gain, float master_kd_gain, float dt)
 {
-    float targetRate        = stick_normalized *  pid->maxRateDegs;
-    float axis_correction   = clampf(compute_axis_pid(stick_normalized, targetRate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kd_gain, pid, 1), -1.0f, 1.0f);
+    float target_rate        = stick_normalized *  pid->max_rate_degs;
+    float axis_correction   = clampf(compute_axis_pid(stick_normalized, target_rate, gyro_value, gyro_value_low, dt, master_kp_gain, master_kd_gain, pid, 1), -1.0f, 1.0f);
     
     return map_to_pwm(axis_correction);
 }
@@ -452,24 +452,24 @@ void servo_update_task(void *pvParameters)
         if (gyro_data.valid)
         {
             instant_horizontal_trim(rx_data.us_values[8]);
-            g_gyro_temperature = (int16_t)(gyro_data.temp * 10.0f);
+            g_gyro_temperature = gyro_data.temp;
         }
 
         g_elrs_data_valid = rx_data.valid;
 
         if (rx_data.valid)
         {
-            if (g_master_kp_gain_channel >= 0 && g_master_kp_gain_channel < 8)
+            if (g_master_kp_gain_channel >= 0 && g_master_kp_gain_channel < 12)
             {
                 // Update master kp gain
-                master_kp_gain = rx_data.values_norm[g_master_kp_gain_channel] * .5f + 1.f;
+                master_kp_gain = (rx_data.values_norm[g_master_kp_gain_channel]  + 1.0f) * 0.5f; // Map from [-1, 1] to [0, 1]
             }
-            if (g_master_kd_gain_channel >= 0 && g_master_kd_gain_channel < 8)
+            if (g_master_kd_gain_channel >= 0 && g_master_kd_gain_channel < 12)
             {
                 // Update master kd gain
-                master_kd_gain = rx_data.values_norm[g_master_kd_gain_channel] * 0.5f + 1.0f;
+                master_kd_gain = (rx_data.values_norm[g_master_kd_gain_channel] + 1.0f) * 0.5f; // Map from [-1, 1] to [0, 1]
             }
-            if (g_flightmode_channel >= 0 && g_flightmode_channel < 8)
+            if (g_flightmode_channel >= 0 && g_flightmode_channel < 12)
             {
                 int fmv = rx_data.us_values[g_flightmode_channel];
                 if (fmv > 1700)
@@ -509,24 +509,24 @@ void servo_update_task(void *pvParameters)
 #ifdef LEVEL_MODE_MAHONY
                 mahony_get_euler(&g_attitude);
 #endif
-                const float attitude_pitch = g_attitude.pitchDeg + g_attitude_correction_rp[1];
-                const float attitude_roll  = g_attitude.rollDeg  + g_attitude_correction_rp[0];
+                const float attitude_pitch = g_attitude.pitch_deg + g_attitude_correction_rp[1];
+                const float attitude_roll  = g_attitude.roll_deg  + g_attitude_correction_rp[0];
 
-                float stickInputRoll  = rx_data.values_norm[CHANNEL_AILERON];
-                float targetAngleRoll = stickInputRoll * 45.0f; // -45° à +45°
-                float targetRateRoll  = 4.f * (targetAngleRoll - attitude_roll);
-                targetRateRoll        = clampf(targetRateRoll, -g_pid_roll.maxRateDegs, g_pid_roll.maxRateDegs);
+                float stick_input_roll  = rx_data.values_norm[CHANNEL_AILERON];
+                float target_angle_roll = stick_input_roll * 45.0f; // -45° à +45°
+                float target_rate_roll  = 4.f * (target_angle_roll - attitude_roll);
+                target_rate_roll        = clampf(target_rate_roll, -g_pid_roll.max_rate_degs, g_pid_roll.max_rate_degs);
 
                 float roll_rad = attitude_roll * DEG_TO_RAD;
                 float pitch_bump = (1.0f - fast_cosf(roll_rad)) * 12.0f;
 
-                float stickInputPitch  = rx_data.values_norm[CHANNEL_ELEVATOR];
-                float targetAnglePitch = (stickInputPitch * 35.0f) + pitch_bump; // -35° à +35°
-                float targetRatePitch  = 3.5f * (targetAnglePitch - attitude_pitch);
-                targetRatePitch        = clampf(targetRatePitch, -g_pid_pitch.maxRateDegs, g_pid_pitch.maxRateDegs);
+                float stick_input_pitch  = rx_data.values_norm[CHANNEL_ELEVATOR];
+                float target_angle_pitch = (stick_input_pitch * 35.0f) + pitch_bump; // -35° à +35°
+                float target_rate_pitch  = 3.5f * (target_angle_pitch - attitude_pitch);
+                target_rate_pitch        = clampf(target_rate_pitch, -g_pid_pitch.max_rate_degs, g_pid_pitch.max_rate_degs);
 
-                rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, targetRateRoll, gyro_data.rot_x,  gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &g_pid_roll, 0));
-                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &g_pid_pitch, 0));
+                rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0, target_rate_roll, gyro_data.rot_x,  gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &g_pid_roll, 0));
+                rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, target_rate_pitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &g_pid_pitch, 0));
                 rx_data.us_values[CHANNEL_RUDDER]   = compute_axis_pwm(&g_pid_yaw, rx_data.values_norm[CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_kp_gain, master_kd_gain, dt);
             }
             else if (g_flightmode == FLIGHTMODE_STAB)
@@ -542,19 +542,19 @@ void servo_update_task(void *pvParameters)
 #ifdef LEVEL_MODE_MAHONY
             mahony_get_euler(&g_attitude);
 #endif
-            const float attitude_pitch = g_attitude.pitchDeg + g_attitude_correction_rp[1];
-            const float attitude_roll  = g_attitude.rollDeg  + g_attitude_correction_rp[0];
+            const float attitude_pitch = g_attitude.pitch_deg + g_attitude_correction_rp[1];
+            const float attitude_roll  = g_attitude.roll_deg  + g_attitude_correction_rp[0];
             // Failsafe mode: no RX data, but gyro is valid. Try to keep plane flat and turning
-            float targetAngleRoll = 20.f;
-            float targetRateRoll  = 4.0f * (targetAngleRoll - attitude_roll);
-            targetRateRoll        = clampf(targetRateRoll, -g_pid_roll.maxRateDegs, g_pid_roll.maxRateDegs);
+            float target_angle_roll = 20.f;
+            float target_rate_roll  = 4.0f * (target_angle_roll - attitude_roll);
+            target_rate_roll        = clampf(target_rate_roll, -g_pid_roll.max_rate_degs, g_pid_roll.max_rate_degs);
             
-            float targetAnglePitch = -10.f;
-            float targetRatePitch  = 3.5f * (targetAnglePitch - attitude_pitch);
-            targetRatePitch        = clampf(targetRatePitch, -g_pid_pitch.maxRateDegs, g_pid_pitch.maxRateDegs);
+            float target_angle_pitch = -10.f;
+            float target_rate_pitch  = 3.5f * (target_angle_pitch - attitude_pitch);
+            target_rate_pitch        = clampf(target_rate_pitch, -g_pid_pitch.max_rate_degs, g_pid_pitch.max_rate_degs);
 
-            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, targetRateRoll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &g_pid_roll, 0));
-            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, targetRatePitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &g_pid_pitch, 0));
+            rx_data.us_values[CHANNEL_AILERON]  = map_to_pwm(compute_axis_pid(0.f, target_rate_roll,  gyro_data.rot_x, gyro_data.rot_x_low, dt, master_kp_gain, master_kd_gain, &g_pid_roll, 0));
+            rx_data.us_values[CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0.f, target_rate_pitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &g_pid_pitch, 0));
             rx_data.us_values[CHANNEL_THROTTLE] = 1000; // Motor off
             rx_data.us_values[CHANNEL_RUDDER]   = 1500; // Yaw neutral
             gyro_failsafe = true;
@@ -614,7 +614,7 @@ void servo_update_task(void *pvParameters)
             output_timer = esp_timer_get_time();
             printf("Gyro values : %f %f %f\n", gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z);
             printf("Accel values : %f %f %f\n", gyro_data.ax, gyro_data.ay, gyro_data.az);
-            printf("Attitude : roll %f pitch %f dt %f\n", g_attitude.rollDeg, g_attitude.pitchDeg, dt);
+            printf("Attitude : roll %f pitch %f dt %f\n", g_attitude.roll_deg, g_attitude.pitch_deg, dt);
             fflush(stdout);
         }
 #endif
@@ -646,11 +646,11 @@ void app_main(void)
     gyro_init();
     servo_pwm_init();
 
-    xTaskCreate(actions_task,         "action_task", 8192, NULL, 5,  &actions_task_handle);
+    xTaskCreate(actions_task,         "action",      8192, NULL, 5,  &actions_task_handle);
     xTaskCreate(crsf_task_rx,         "crsf_rx",     2048, NULL, 15, &crsf_rx_task_handle);
     xTaskCreate(servo_update_task,    "servo_ctrl",  4096, NULL, 20, &servo_task_handle);
     xTaskCreate(gyro_supervisor_task, "gyro_sv",     2048, NULL, 21, &gyro_sv_task_handle);
-    xTaskCreate(telemetry_task,       "tlm_task",    4096, NULL, 10, &telemetry_task_handle);
+    xTaskCreate(telemetry_task,       "telemetry",   4096, NULL, 10, &telemetry_task_handle);
 
 #ifdef DEBUG_STACK
     while (1)

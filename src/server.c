@@ -126,7 +126,7 @@ esp_err_t config_post_handler(httpd_req_t *req)
         g_pidroll_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "roll_rate");
     if (item)
-        g_pidroll_config->maxRateDegs = item->valuedouble;
+        g_pidroll_config->max_rate_degs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_invert");
     if (cJSON_IsBool(item))
     {
@@ -142,7 +142,7 @@ esp_err_t config_post_handler(httpd_req_t *req)
         g_pidpitch_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "pitch_rate");
     if (item)
-        g_pidpitch_config->maxRateDegs = item->valuedouble;
+        g_pidpitch_config->max_rate_degs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_invert");
     if (cJSON_IsBool(item))
     {
@@ -158,7 +158,7 @@ esp_err_t config_post_handler(httpd_req_t *req)
         g_pidyaw_config->Kd = item->valuedouble / 10.0;
     item = cJSON_GetObjectItem(json, "yaw_rate");
     if (item)
-        g_pidyaw_config->maxRateDegs = item->valuedouble;
+        g_pidyaw_config->max_rate_degs = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_invert");
     if (cJSON_IsBool(item))
     {
@@ -359,19 +359,19 @@ esp_err_t config_get_handler(httpd_req_t *req)
     // Axis: Roll
     cJSON_AddNumberToObject(json, "roll_kp", g_pidroll_config->Kp);
     cJSON_AddNumberToObject(json, "roll_kd", g_pidroll_config->Kd * 10.0f);
-    cJSON_AddNumberToObject(json, "roll_rate", g_pidroll_config->maxRateDegs);
+    cJSON_AddNumberToObject(json, "roll_rate", g_pidroll_config->max_rate_degs);
     cJSON_AddBoolToObject(json, "roll_invert", g_pidroll_config->invert);
 
     // Axis: Pitch
     cJSON_AddNumberToObject(json, "pitch_kp", g_pidpitch_config->Kp);
     cJSON_AddNumberToObject(json, "pitch_kd", g_pidpitch_config->Kd * 10.0f);
-    cJSON_AddNumberToObject(json, "pitch_rate", g_pidpitch_config->maxRateDegs);
+    cJSON_AddNumberToObject(json, "pitch_rate", g_pidpitch_config->max_rate_degs);
     cJSON_AddBoolToObject(json, "pitch_invert", g_pidpitch_config->invert);
 
     // Axis: Yaw
     cJSON_AddNumberToObject(json, "yaw_kp", g_pidyaw_config->Kp);
     cJSON_AddNumberToObject(json, "yaw_kd", g_pidyaw_config->Kd * 10.0f);
-    cJSON_AddNumberToObject(json, "yaw_rate", g_pidyaw_config->maxRateDegs);
+    cJSON_AddNumberToObject(json, "yaw_rate", g_pidyaw_config->max_rate_degs);
     cJSON_AddBoolToObject(json, "yaw_invert", g_pidyaw_config->invert);
 
     cJSON_AddNumberToObject(json, "master_kp_gain", g_master_kp_gain_channel);
@@ -490,8 +490,8 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
     cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    cJSON_AddNumberToObject(root, "att_roll",  g_attitude.rollDeg + g_attitude_correction_rp[0]);
-    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitchDeg + g_attitude_correction_rp[1]);
+    cJSON_AddNumberToObject(root, "att_roll",  g_attitude.roll_deg + g_attitude_correction_rp[0]);
+    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitch_deg + g_attitude_correction_rp[1]);
 
     const char *json_response = cJSON_PrintUnformatted(root);
 

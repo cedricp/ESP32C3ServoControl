@@ -59,9 +59,9 @@ static volatile TickType_t last_heartbeat = 0;
 
 typedef struct
 {
-    float rot_x, rot_y, rot_z; // deg/s
-    float ax, ay, az;          // m/s^2
-    float temp;                // °C
+    int32_t rot_x, rot_y, rot_z; // deg/s
+    int32_t ax, ay, az;          // m/s^2
+    int32_t temp;                // °C
     char valid;
 } gyro_t;
 
@@ -74,13 +74,13 @@ static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 extern bool g_invert_accel[3];
 
 // cutoff could be tuned for latency issue (less induces more lag)
-static FilterPT1 filterGyroRoll;
-static FilterPT1 filterGyroPitch;
-static FilterPT1 filterGyroYaw;
+static FilterPT1 filter_gyro_roll;
+static FilterPT1 filter_gyro_pitch;
+static FilterPT1 filter_gyro_yaw;
 
-static FilterPT1 filterGyroRoll_low;
-static FilterPT1 filterGyroPitch_low;
-static FilterPT1 filterGyroYaw_low;
+static FilterPT1 filter_gyro_roll_low;
+static FilterPT1 filter_gyro_pitch_low;
+static FilterPT1 filter_gyro_yaw_low;
 
 static void mpu_i2c_init(void)
 {
@@ -186,7 +186,7 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
     out->az = az;
     
     int16_t raw_temp = (int16_t)(buffer[6] << 8) | buffer[7];
-    out->temp = ((float)raw_temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f;
+    out->temp = raw_temp;
 
     return ESP_OK;
 }
@@ -289,23 +289,23 @@ void gyro_init()
 void gyro_control_task(void *pvParameters)
 {
     last_heartbeat = xTaskGetTickCount();
-    float cleanRollRate = 0.0f, cleanPitchRate = 0.0f, cleanYawRate = 0.0f;
-    float cleanRollRate_low = 0.0f, cleanPitchRate_low = 0.0f, cleanYawRate_low = 0.0f;
-    float rawAx = 0.0f, rawAy = 0.0f, rawAz = 0.0f;
-    float cleanAx = 0.0f, cleanAy = 0.0f, cleanAz = 0.0f;
+    float clean_roll_rate = 0.0f, clean_pitch_rate = 0.0f, clean_yaw_rate = 0.0f;
+    float clean_roll_rate_low = 0.0f, clean_pitch_rate_low = 0.0f, clean_yaw_rate_low = 0.0f;
+    float raw_ax = 0.0f, raw_ay = 0.0f, raw_az = 0.0f;
+    float clean_ax = 0.0f, clean_ay = 0.0f, clean_az = 0.0f;
 
     gyro_t gyro_data;
     gyro_data.ax = 0.0f;
     gyro_data.ay = 0.0f;
     gyro_data.az = 0.0f;
 
-    initPT1Filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_roll,  GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_pitch, GYRO_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_yaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
 
-    initPT1Filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_roll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_pitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    initPT1Filter(&filter_gyro_yaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
 
     if (nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK)
     {
@@ -327,30 +327,30 @@ void gyro_control_task(void *pvParameters)
     while (1)
     {
         // Blocking wait for notification from ISR
-        uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
-        if (ulNotificationValue > 0)
+        uint32_t ul_notification_value = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+        if (ul_notification_value > 0)
         {
             // DRDY Interrup ! Direct read and process the data
             bool valid = false;
             if (mpu_read_gyro(&gyro_data, g_gyro_offsets) == ESP_OK)
             {
-                gyro_data.rot_x *= GYRO_SCALE;
-                gyro_data.rot_y *= GYRO_SCALE;
-                gyro_data.rot_z *= GYRO_SCALE;
+                float rotx = gyro_data.rot_x * GYRO_SCALE;
+                float roty = gyro_data.rot_y * GYRO_SCALE;
+                float rotz = gyro_data.rot_z * GYRO_SCALE;
 
-                rawAx = gyro_data.ax * ACCEL_SCALE_8G;
-                rawAy = gyro_data.ay * ACCEL_SCALE_8G;
-                rawAz = gyro_data.az * ACCEL_SCALE_8G;
+                raw_ax = gyro_data.ax * ACCEL_SCALE_8G;
+                raw_ay = gyro_data.ay * ACCEL_SCALE_8G;
+                raw_az = gyro_data.az * ACCEL_SCALE_8G;
 
-                cleanRollRate_low   = applyPT1Filter(&filterGyroRoll_low, gyro_data.rot_x);
-                cleanPitchRate_low  = applyPT1Filter(&filterGyroPitch_low, gyro_data.rot_y);
-                cleanYawRate_low    = applyPT1Filter(&filterGyroYaw_low, gyro_data.rot_z);
+                clean_roll_rate_low   = applyPT1Filter(&filter_gyro_roll_low, rotx);
+                clean_pitch_rate_low  = applyPT1Filter(&filter_gyro_pitch_low, roty);
+                clean_yaw_rate_low    = applyPT1Filter(&filter_gyro_yaw_low, rotz);
 
-                cleanRollRate   = applyPT1Filter(&filterGyroRoll, gyro_data.rot_x);
-                cleanPitchRate  = applyPT1Filter(&filterGyroPitch, gyro_data.rot_y);
-                cleanYawRate    = applyPT1Filter(&filterGyroYaw, gyro_data.rot_z);
+                clean_roll_rate   = applyPT1Filter(&filter_gyro_roll, rotx);
+                clean_pitch_rate  = applyPT1Filter(&filter_gyro_pitch, roty);
+                clean_yaw_rate    = applyPT1Filter(&filter_gyro_yaw, rotz);
 
-                filter_accelerometer(rawAx, rawAy, rawAz, &cleanAx, &cleanAy, &cleanAz);
+                filter_accelerometer(raw_ax, raw_ay, raw_az, &clean_ax, &clean_ay, &clean_az);
 
                 valid = true;
                 HEARTBEAT
@@ -358,24 +358,24 @@ void gyro_control_task(void *pvParameters)
 
             gyro_data_t local_gyro_data;
 
-            local_gyro_data.rot_x     = g_invert_accel[0] ? -cleanRollRate : cleanRollRate;
-            local_gyro_data.rot_x_low = g_invert_accel[0] ? -cleanRollRate_low : cleanRollRate_low;
-            local_gyro_data.raw_ax    = g_invert_accel[0] ? -rawAx : rawAx;
-            local_gyro_data.ax        = g_invert_accel[0] ? -cleanAx : cleanAx;
+            local_gyro_data.rot_x     = g_invert_accel[0] ? -clean_roll_rate : clean_roll_rate;
+            local_gyro_data.rot_x_low = g_invert_accel[0] ? -clean_roll_rate_low : clean_roll_rate_low;
+            local_gyro_data.raw_ax    = g_invert_accel[0] ? -raw_ax : raw_ax;
+            local_gyro_data.ax        = g_invert_accel[0] ? -clean_ax : clean_ax;
 
-            local_gyro_data.rot_y     = g_invert_accel[1] ? -cleanPitchRate : cleanPitchRate;
-            local_gyro_data.rot_y_low = g_invert_accel[1] ? -cleanPitchRate_low : cleanPitchRate_low;
-            local_gyro_data.raw_ay    = g_invert_accel[1] ? -rawAy : rawAy;
-            local_gyro_data.ay        = g_invert_accel[1] ? -cleanAy : cleanAy;
+            local_gyro_data.rot_y     = g_invert_accel[1] ? -clean_pitch_rate : clean_pitch_rate;
+            local_gyro_data.rot_y_low = g_invert_accel[1] ? -clean_pitch_rate_low : clean_pitch_rate_low;
+            local_gyro_data.raw_ay    = g_invert_accel[1] ? -raw_ay : raw_ay;
+            local_gyro_data.ay        = g_invert_accel[1] ? -clean_ay : clean_ay;
 
-            local_gyro_data.rot_z     = g_invert_accel[2] ? -cleanYawRate : cleanYawRate;
-            local_gyro_data.rot_z_low = g_invert_accel[2] ? -cleanYawRate_low : cleanYawRate_low;
-            local_gyro_data.raw_az    = g_invert_accel[2] ? -rawAz : rawAz;
-            local_gyro_data.az        = g_invert_accel[2] ? -cleanAz : cleanAz;
+            local_gyro_data.rot_z     = g_invert_accel[2] ? -clean_yaw_rate : clean_yaw_rate;
+            local_gyro_data.rot_z_low = g_invert_accel[2] ? -clean_yaw_rate_low : clean_yaw_rate_low;
+            local_gyro_data.raw_az    = g_invert_accel[2] ? -raw_az : raw_az;
+            local_gyro_data.az        = g_invert_accel[2] ? -clean_az : clean_az;
+
+            local_gyro_data.temp      = (((float)gyro_data.temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f) * 10.0f;
 
             local_gyro_data.valid     = valid;
-
-            local_gyro_data.temp      = gyro_data.temp;
 
             if (xSemaphoreTake(g_gyro_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
             {
