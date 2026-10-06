@@ -36,7 +36,7 @@
  */
 
 
-PID_Config_t g_pid_roll;
+PID_Config_t g_pid_roll ;
 PID_Config_t g_pid_pitch;
 PID_Config_t g_pid_yaw;
 
@@ -45,9 +45,10 @@ float       g_attitude_correction_rp[2] = {0.f, 0.f};
 uint16_t    g_motor_magnets_count = 14;
 uint8_t     g_crash_reasons[4] = {0, 0, 0, 0};
 attitude_t  g_attitude;
-int         g_master_kp_gain_channel = 5;
-int         g_master_kd_gain_channel = 7;
-int         g_flightmode_channel = 6;
+int         g_master_kp_gain_channel = CHANNEL_KP_GAIN;
+int         g_master_kd_gain_channel = CHANNEL_KD_GAIN;
+int         g_instant_trim_channel   = CHANNEL_INSTANT_TRIM;
+int         g_flightmode_channel     = CHANNEL_FLIGHTMODE;
 int         g_flightmode = 0;
 int         g_ouput_mapping[NUM_PWM_OUPUTS];
 uint32_t    g_failsafe_us[NUM_PWM_OUPUTS];
@@ -61,11 +62,11 @@ float       g_tpa_value = 0.0f;
 volatile uint32_t g_esc_temperature = 0;
 volatile int16_t g_gyro_temperature = 0;
 
-TaskHandle_t servo_task_handle = NULL;
-TaskHandle_t crsf_rx_task_handle = NULL;
-TaskHandle_t actions_task_handle = NULL;
+TaskHandle_t servo_task_handle     = NULL;
+TaskHandle_t crsf_rx_task_handle   = NULL;
+TaskHandle_t actions_task_handle   = NULL;
 TaskHandle_t telemetry_task_handle = NULL;
-TaskHandle_t gyro_sv_task_handle = NULL;
+TaskHandle_t gyro_sv_task_handle   = NULL;
 
 PID_Config_t *get_pid_roll(void)
 {
@@ -80,12 +81,6 @@ PID_Config_t *get_pid_pitch(void)
 PID_Config_t *get_pid_yaw(void)
 {
     return &g_pid_yaw;
-}
-
-static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us)
-{
-    // return (us * 16384) / 20000;
-    return (us * ((1 << LEDC_TIMER_14_BIT) - 1)) / LEDC_PERIOD_US;
 }
 
 void calibrate_roll(void)
@@ -226,9 +221,9 @@ void init_pid_factory()
 {
     g_master_kp_gain_channel = 5;
     g_flightmode_channel = 6;
-    init_pid(&g_pid_roll,  0.5f, 0.0f, 0.0001f, 250.f, false);
-    init_pid(&g_pid_pitch, 0.6f, 0.0f, 0.0001f, 150.f, false);
-    init_pid(&g_pid_yaw,   0.7f, 0.0f, 0.0002f, 120.f, false);
+    init_pid(&g_pid_roll,  1.0f, 0.0f, 0.0001f, 250.f, false);
+    init_pid(&g_pid_pitch, 1.0f, 0.0f, 0.0001f, 150.f, false);
+    init_pid(&g_pid_yaw,   1.0f, 0.0f, 0.0002f, 120.f, false);
     g_invert_accel[0] = false;
     g_invert_accel[1] = false;
     g_invert_accel[2] = false;
@@ -476,7 +471,17 @@ void servo_update_task(void *pvParameters)
 
         if (gyro_data.valid)
         {
-            instant_horizontal_trim(rx_data.us_values[8]);
+#ifdef LEVEL_MODE_MAHONY
+            // ~70us execution time
+            mahony_update(gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
+            mahony_get_euler(&g_attitude);
+#else
+            compute_attitude(&g_attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
+#endif
+            if (g_instant_trim_channel >= 0 && g_instant_trim_channel < 12)
+            {
+                instant_horizontal_trim(rx_data.us_values[g_instant_trim_channel]);
+            }
             g_gyro_temperature = gyro_data.temp;
 
             const float throttle_normalized = rx_data.values_norm[CHANNEL_THROTTLE];
@@ -521,17 +526,6 @@ void servo_update_task(void *pvParameters)
                 }
             }
             g_elrs_armed = rx_data.us_values[4] > 1600;
-        }
-
-        if (gyro_data.valid)
-        {
-#ifdef LEVEL_MODE_MAHONY
-            // ~70us execution time
-            mahony_update(gyro_data.rot_x, gyro_data.rot_y, gyro_data.rot_z, gyro_data.ax, gyro_data.ay, gyro_data.az, dt);
-            mahony_get_euler(&g_attitude);
-#else
-            compute_attitude(&g_attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
-#endif
         }
 
         // Gyro Pitch : -up +down

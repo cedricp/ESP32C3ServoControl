@@ -307,6 +307,11 @@
                     <option value="5">Channel 6</option>
                     <option value="6">Channel 7</option>
                     <option value="7">Channel 8</option>
+                    <option value="8">Channel 9</option>
+                    <option value="9">Channel 10</option>
+                    <option value="10">Channel 11</option>
+                    <option value="11">Channel 12</option>
+                    <option value="12">Channel 12</option>
                 </select>
             </div>
         </div>
@@ -328,6 +333,37 @@
                     <option value="5">Channel 6</option>
                     <option value="6">Channel 7</option>
                     <option value="7">Channel 8</option>
+                    <option value="8">Channel 9</option>
+                    <option value="9">Channel 10</option>
+                    <option value="10">Channel 11</option>
+                    <option value="11">Channel 12</option>
+                    <option value="12">Channel 12</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Instant trim channel</h2>
+            <div class="control-group">
+                <div class="control-label">
+                    <span>Instant trim channel input</span>
+                </div>
+                
+                <select id="instant_trim_channel" class="select-input">
+                    <option value="255">None</option>
+                    <option value="0">Channel 1</option>
+                    <option value="1">Channel 2</option>
+                    <option value="2">Channel 3</option>
+                    <option value="3">Channel 4</option>
+                    <option value="4">Channel 5</option>
+                    <option value="5">Channel 6</option>
+                    <option value="6">Channel 7</option>
+                    <option value="7">Channel 8</option>
+                    <option value="8">Channel 9</option>
+                    <option value="9">Channel 10</option>
+                    <option value="10">Channel 11</option>
+                    <option value="11">Channel 12</option>
+                    <option value="12">Channel 12</option>
                 </select>
             </div>
         </div>
@@ -348,6 +384,11 @@
                     <option value="5">Channel 6</option>
                     <option value="6">Channel 7</option>
                     <option value="7">Channel 8</option>
+                    <option value="8">Channel 9</option>
+                    <option value="9">Channel 10</option>
+                    <option value="10">Channel 11</option>
+                    <option value="11">Channel 12</option>
+                    <option value="12">Channel 12</option>
                 </select>
                 <div id="fmstatus"></div>
             </div>
@@ -726,6 +767,7 @@
         const payload = {
             master_kp_gain: parseInt(document.getElementById('master_kp_gain').value),
             master_kd_gain: parseInt(document.getElementById('master_kd_gain').value),
+            instant_trim_channel: parseInt(document.getElementById('instant_trim_channel').value),
             
             crash_threshold: parseFloat(document.getElementById('crash_threshold').value),
             roll_kp: parseFloat(document.getElementById('roll_kp').value),

@@ -38,7 +38,11 @@ typedef enum
     CHANNEL_ELEVATOR,
     CHANNEL_THROTTLE,
     CHANNEL_RUDDER,
-    CHANNEL_ARM
+    CHANNEL_ARM,
+    CHANNEL_KP_GAIN,
+    CHANNEL_FLIGHTMODE,
+    CHANNEL_KD_GAIN,
+    CHANNEL_INSTANT_TRIM
 } channels_t;
 
 typedef enum {

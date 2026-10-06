@@ -26,6 +26,7 @@ static esp_netif_t *esp_netif_handle = NULL;
 extern attitude_t   g_attitude;
 extern int          g_master_kp_gain_channel;
 extern int          g_master_kd_gain_channel;
+extern int          g_instant_trim_channel;
 extern float        g_level_mode_gain;
 extern int          g_flightmode;
 extern int          g_flightmode_channel;
@@ -72,16 +73,6 @@ static void dhcp_set_captiveportal_url(void)
     // get a handle to configure DHCP with
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 
-    esp_netif_dns_info_t dns = {0};
-    dns.ip.type = ESP_IPADDR_TYPE_V4;
-    dns.ip.u_addr.ip4.addr = ip_info.ip.addr;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif));
-    ESP_ERROR_CHECK(esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns));
-    uint8_t offer_dns = 1; // OFFER_DNS
-    ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET,
-                    ESP_NETIF_DOMAIN_NAME_SERVER, &offer_dns, sizeof(offer_dns)));
-    
     // set the DHCP option 114
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif));
     ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, captiveportal_uri, strlen(captiveportal_uri)));
@@ -174,6 +165,10 @@ esp_err_t config_post_handler(httpd_req_t *req)
     item = cJSON_GetObjectItem(json, "master_kd_gain");
     if (item)
         g_master_kd_gain_channel = item->valueint;
+
+    item = cJSON_GetObjectItem(json, "instant_trim_channel");
+    if (item)
+        g_instant_trim_channel = item->valueint;
 
     item = cJSON_GetObjectItem(json, "flightmode_channel");
     if (item)
@@ -386,6 +381,7 @@ esp_err_t config_get_handler(httpd_req_t *req)
 
     cJSON_AddNumberToObject(json, "master_kp_gain", g_master_kp_gain_channel);
     cJSON_AddNumberToObject(json, "master_kd_gain", g_master_kd_gain_channel);
+    cJSON_AddNumberToObject(json, "instant_trim_channel", g_instant_trim_channel);
     cJSON_AddNumberToObject(json, "level_mode_gain", g_level_mode_gain);
 
     cJSON_AddNumberToObject(json, "flightmode", g_flightmode);
