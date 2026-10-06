@@ -59,7 +59,7 @@ typedef struct
 {
     int32_t rot_x, rot_y, rot_z; // deg/s
     int32_t ax, ay, az;          // m/s^2
-    int32_t temp;                // °C
+    int16_t temp;                // °C
     char valid;
 } gyro_t;
 
@@ -340,13 +340,13 @@ void gyro_control_task(void *pvParameters)
                 raw_ay = gyro_data.ay * ACCEL_SCALE_8G;
                 raw_az = gyro_data.az * ACCEL_SCALE_8G;
 
-                clean_roll_rate_low  = apply_pt1_filter(&filterGyroRoll_low, gyro_data.rot_x);
-                clean_pitch_rate_low = apply_pt1_filter(&filterGyroPitch_low, gyro_data.rot_y);
-                clean_yaw_rate_low   = apply_pt1_filter(&filterGyroYaw_low, gyro_data.rot_z);
+                clean_roll_rate_low  = apply_pt1_filter(&filterGyroRoll_low, rotx);
+                clean_pitch_rate_low = apply_pt1_filter(&filterGyroPitch_low, roty);
+                clean_yaw_rate_low   = apply_pt1_filter(&filterGyroYaw_low, rotz);
 
-                clean_roll_rate   = apply_pt1_filter(&filterGyroRoll, gyro_data.rot_x);
-                clean_pitch_rate  = apply_pt1_filter(&filterGyroPitch, gyro_data.rot_y);
-                clean_yaw_rate    = apply_pt1_filter(&filterGyroYaw, gyro_data.rot_z);
+                clean_roll_rate   = apply_pt1_filter(&filterGyroRoll, rotx);
+                clean_pitch_rate  = apply_pt1_filter(&filterGyroPitch, roty);
+                clean_yaw_rate    = apply_pt1_filter(&filterGyroYaw, rotz);
 
                 filter_accelerometer(raw_ax, raw_ay, raw_az, &clean_ax, &clean_ay, &clean_az);
 
@@ -371,7 +371,7 @@ void gyro_control_task(void *pvParameters)
             local_gyro_data.raw_az    = g_invert_accel[2] ? -raw_az : raw_az;
             local_gyro_data.az        = g_invert_accel[2] ? -clean_az : clean_az;
 
-            local_gyro_data.temp      = (((float)gyro_data.temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f) * 10.0f;
+            local_gyro_data.temp      = (((float)gyro_data.temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f) * 10.0f; // Convert to °C * 10
 
             local_gyro_data.valid     = valid;
 

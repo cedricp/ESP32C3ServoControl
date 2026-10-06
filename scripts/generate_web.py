@@ -3,6 +3,8 @@ import os
 import glob
 
 def is_older(file_a, file_b):
+    if not os.path.exists(file_b):
+        return False
     return os.path.getmtime(file_a) < os.path.getmtime(file_b)
 
 def generate_html_header(html_path):
@@ -10,7 +12,7 @@ def generate_html_header(html_path):
     name, ext = os.path.splitext(basename)
     header_path = os.path.join("include", f"{basename}.h")
 
-    if is_older(html_path, header_path) or not os.path.exists(header_path):
+    if is_older(html_path, header_path):
         # Don't regenerate
         return
 

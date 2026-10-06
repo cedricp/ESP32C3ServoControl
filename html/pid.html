@@ -275,11 +275,17 @@
 
     <div id="attitude_status"></div>
     
-    <form id="Level mode gain"> 
+    <form id="pidForm2">   
         <div class="card">    
             <h2>Master Level mode gain</h2>
             <div class="control-label"><span>Level mode gain</span><span class="val" id="level_mode_gain_v">0.00</span></div>
-            <input type="range" id="level_mode_gain" min="1" max="20" step="0.1" value="5.0">
+            <input type="range" id="level_mode_gain" min="1" max="15" step="0.1" value="5.0">
+        </div>
+        
+        <div class="card">    
+            <h2>Throttle PID attenuation at max throttle</h2>
+            <div class="control-label"><span>TPA</span><span class="val" id="tpa_v">0.00</span></div>
+            <input type="range" id="tpa" min="0" max="0.5" step="0.1" value="0">
         </div>
     </form>
 
@@ -740,7 +746,10 @@
 
             invertax: document.getElementById('invertax').checked,
             invertay: document.getElementById('invertay').checked,
-            invertaz: document.getElementById('invertaz').checked
+            invertaz: document.getElementById('invertaz').checked,
+
+            level_mode_gain: parseFloat(document.getElementById('level_mode_gain').value),
+            tpa: parseFloat(document.getElementById('tpa').value)
 
         };
 
