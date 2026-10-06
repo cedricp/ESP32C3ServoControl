@@ -4,27 +4,17 @@ typedef struct  {
     float state;       // Mémoire de la dernière valeur filtrée
     float alpha;       // Coefficient de lissage précalculé
     float cutoffFreq;  // Fréquence de coupure en Hz (ex: 30 Hz à 90 Hz)
-} FilterPT1;
+} filter_pt1;
 
-inline void initPT1Filter(FilterPT1 *filter, float cutoffFreq, float dt) {
+inline void init_pt1_filter(filter_pt1 *filter, float cutoffFreq, float dt) {
     filter->cutoffFreq = cutoffFreq;
-    
-    // Calcul de la constante de temps Tau (rc = 1 / (2 * pi * f_c))
-    float rc = 1.0f / (2.0f * 3.14159265f * cutoffFreq);
-    
-    // Calcul du coefficient alpha
+    // Compute time constant Tau (rc = 1 / (2 * pi * f_c))
+    float rc = 1.0f / (2.0f * M_PI * cutoffFreq);
+    // Calculate alpha based on the time constant and the sampling interval
     filter->alpha = dt / (rc + dt);
-    
-    // Alternative simplifiée directe :
-    // float omega = 2.0 * 3.14159265 * cutoffFreq;
-    // filter.alpha = (omega * dt) / (1.0 + omega * dt);
 }
 
-// -----------------------------------------------------------------------------
-// 3. FONCTION D'EXÉCUTION DU FILTRE (À chaque échantillon)
-// -----------------------------------------------------------------------------
-inline float applyPT1Filter(FilterPT1 *filter, float rawInput) {
-    // Équation de mise à jour du filtre PT1 :
+inline float apply_pt1_filter(filter_pt1 *filter, float rawInput) {
     // new_state = old_state + alpha * (raw_input - old_state)
     filter->state = filter->state + filter->alpha * (rawInput - filter->state);
     
@@ -32,7 +22,7 @@ inline float applyPT1Filter(FilterPT1 *filter, float rawInput) {
 }
 
 typedef struct LPF_U32 {
-    uint8_t shift_factor;
+    uint8_t  shift_factor;
     uint32_t filtered_acc;
 } lpf_u32_t;
 

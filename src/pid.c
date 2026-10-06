@@ -3,19 +3,13 @@
 #include <math.h>
 #include <utils.h>
 #include "pid.h"
+#include "config.h"
 
 #include "esp_attr.h"
-
-#define MAX_I_TERM 0.2f
-#define MAX_SERVO_OUTPUT 1.0f
-
-#define MAHONY_KP 0.5f
-#define MAHONY_KI 0.0f
-
 typedef struct
 {
-    float q0, q1, q2, q3;
-    float ix, iy, iz; // integral error accumulators
+    float q0, q1, q2, q3;   // Attitude quaternion components
+    float ix, iy, iz;       // integral error accumulators
 } MahonyFilter;
 
 static MahonyFilter mahony = {.q0 = 1.0f, .q1 = 0.0f, .q2 = 0.0f, .q3 = 0.0f, .ix = 0.0f, .iy = 0.0f, .iz = 0.0f};
@@ -83,47 +77,9 @@ IRAM_ATTR float compute_axis_pid(float stickInput, float targetRate, float measu
     float output = stickInput + gyroCorrection;
 
     // h. Clamp output to [-1.0, 1.0] range
-    clampf(output, -MAX_SERVO_OUTPUT, MAX_SERVO_OUTPUT);
+    clampf(output, -1.0f, 1.0f);
 
     return output;
-}
-
-/**
- * @brief Convert a PWM pulse width in microseconds to a target rotation rate in degrees per second, considering deadband and maximum rate.
- *
- * @param pulse_us     PWM pulse width in microseconds (e.g., 1000 to 2000)
- * @param max_rate_dps Rotation rate limit in degrees per second (e.g., 250.0)
- * @param deadband_us  Half of the deadzone around the center (e.g., 12 us to ignore 1488..1512 us)
- *
- * @return float Target rotation rate in deg/s
- */
-IRAM_ATTR float mapStickToRate(uint16_t pulse_us, float max_rate_dps, uint16_t deadband_us)
-{
-    int32_t offset = (int32_t)pulse_us - 1500;
-
-    if (fast_fabsf(offset) <= deadband_us)
-    {
-        return 0.0f;
-    }
-
-    if (offset > 0)
-    {
-        offset -= deadband_us;
-    }
-    else
-    {
-        offset += deadband_us;
-    }
-
-    // 3. Normalization -1.0f et +1.0f
-    float max_range = 500.0f - (float)deadband_us;
-    float x = (float)offset / max_range;
-
-    // Clamping to ensure x is within [-1.0, 1.0]
-    x = clampf(x, -1.0f, 1.0f);
-
-    // 5. Conversion in deg/s
-    return x * max_rate_dps;
 }
 
 #define ALPHA 0.98f // 98% Gyro, 2% Accel
@@ -151,8 +107,8 @@ IRAM_ATTR void compute_attitude(attitude_t *attitude, float ax, float ay, float 
     if (totalAccelNorm >= 0.64f && totalAccelNorm <= 1.44f) 
     {
         float accelNormYZ = fast_sqrtf(ay * ay + az * az);
-        float accelRoll    = fast_atan2f(ay, az) * RAD_TO_DEG;
-        float accelPitch   = (accelNormYZ > 0.001f) ? fast_atan2f(-ax, accelNormYZ) * RAD_TO_DEG : attitude->pitchDeg;
+        float accelRoll    = rad_to_deg(fast_atan2f(ay, az));
+        float accelPitch   = (accelNormYZ > 0.001f) ? rad_to_deg(fast_atan2f(-ax, accelNormYZ)) : attitude->pitchDeg;
 
         // Adaptative fusion of gyro and accelerometer data using complementary filter
         attitude->rollDeg  = ALPHA * gyroRoll + (1.0f - ALPHA) * accelRoll;
@@ -208,8 +164,8 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
         float ey = (az * vx - ax * vz);
         float ez = (ax * vy - ay * vx);
 
-        // Integral correcion (simple anti-windup)
-        if (MAHONY_KI > 0.0f)
+        // Integral correction (simple anti-windup)
+        if (MAHONY_KI > 0.0f && deviation < 0.15f)
         {
             mahony.ix += ex * MAHONY_KI * dt;
             mahony.iy += ey * MAHONY_KI * dt;
@@ -258,7 +214,7 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
     float q0 = mahony.q0, q1 = mahony.q1, q2 = mahony.q2, q3 = mahony.q3;
 
     // Roll : -180° à +180°
-    attidude->rollDeg = fast_atan2f(2.0f * (q0 * q1 + q2 * q3), 1.0f - 2.0f * (q1 * q1 + q2 * q2)) * RAD_TO_DEG;
+    attidude->rollDeg = rad_to_deg(fast_atan2f(2.0f * (q0 * q1 + q2 * q3), 1.0f - 2.0f * (q1 * q1 + q2 * q2)));
 
     float sinp = 2.0f * (q0 * q2 - q1 * q3); 
     
@@ -268,10 +224,10 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
     }
     else
     {
-        attidude->pitchDeg = fast_asinf(sinp) * RAD_TO_DEG;
+        attidude->pitchDeg = rad_to_deg(fast_asinf(sinp));
     }
     // Yaw : -180° to +180° (can drift without magnetometer, OK in relative)
-    // attidude->yawDeg = fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)) * RAD_TO_DEG;
+    // attidude->yawDeg = rad_to_deg(fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)));
 }
 
 void init_attitude(attitude_t *attitude, float ax, float ay, float az)
@@ -279,9 +235,9 @@ void init_attitude(attitude_t *attitude, float ax, float ay, float az)
     float accelNorm = fast_sqrtf(ay * ay + az * az);
 
     // Init with gravity vector
-    attitude->rollDeg  = fast_atan2f(ay, az) * RAD_TO_DEG;
+    attitude->rollDeg  = rad_to_deg(fast_atan2f(ay, az));
     attitude->pitchDeg = (accelNorm > 0.001f)
-                             ? fast_atan2f(-ax, accelNorm) * RAD_TO_DEG
-                             : 0.0f;
-    attitude->rollDeg  = 0;
+                         ? rad_to_deg(fast_atan2f(-ax, accelNorm))
+                         : 0.0f;
+    attitude->yawDeg  = 0;
 }
