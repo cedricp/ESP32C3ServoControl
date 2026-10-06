@@ -14,12 +14,13 @@
 
 extern volatile uint32_t g_esc_temperature;
 extern volatile int16_t  g_gyro_temperature;
+
 extern uint16_t    g_motor_magnets_count;
 extern attitude_t  g_attitude;
 extern float       g_attitude_correction_rp[2];
 
-uint32_t last_gps_frame_time = 0;
-uint32_t last_esc_frame_time = 0;
+static uint32_t last_gps_frame_time  = 0;
+static uint32_t last_esc_frame_time  = 0;
 static battery_type_t g_battery_type = BATTERY_UNKNOWN;
 
 inline void update_checksum(uint8_t cb, uint8_t *CK_A, uint8_t *CK_B) {
@@ -230,9 +231,14 @@ static void process_gps()
 
 static void process_attitude()
 {
-    crsf_send_attitude((int16_t)((g_attitude.pitch_deg + g_attitude_correction_rp[1]) * (M_PI / 180.0f) * 10000.0f),
-                       (int16_t)((g_attitude.roll_deg + g_attitude_correction_rp[0]) * (M_PI / 180.0f) * 10000.0f),
+    crsf_send_attitude((int16_t)(deg_to_rad(g_attitude.pitch_deg + g_attitude_correction_rp[1]) * 10000.0f),
+                       (int16_t)(deg_to_rad(g_attitude.roll_deg  + g_attitude_correction_rp[0]) * 10000.0f),
                        0);
+}
+
+static void process_gyro_temperature()
+{
+    crsf_send_temp(g_gyro_temperature, 0);
 }
 
 void telemetry_task(void *pvParameters)
@@ -241,7 +247,7 @@ void telemetry_task(void *pvParameters)
         process_esc();
         process_gps();
         process_attitude();
-        crsf_send_temp(g_gyro_temperature, 0);
+        process_gyro_temperature();
     }
 }
 

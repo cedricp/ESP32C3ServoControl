@@ -16,7 +16,11 @@
 
 // PWM configuration
 #define NUM_PWM_OUPUTS      5
-#define PWM_OUTPUT_PINS     GPIO_NUM_6, GPIO_NUM_7, GPIO_NUM_8, GPIO_NUM_9, GPIO_NUM_10
+#define PWM_OUTPUT_PINS     GPIO_NUM_6,\
+                            GPIO_NUM_7,\
+                            GPIO_NUM_8,\
+                            GPIO_NUM_9,\
+                            GPIO_NUM_10
 
 // I2C configuration for MPU6500
 #define I2C_SDA_PIN         GPIO_NUM_20
@@ -27,3 +31,9 @@
 // ESC Software serial RX pin
 #define ESC_RX_GPIO         GPIO_NUM_0
 #define ESC_BITRATE         115200
+
+// Coeffs for PID and Mahony filter
+#define MAX_I_TERM 0.2f
+#define MAHONY_KP  0.5f
+#define MAHONY_KI  0.005f
+// #define GYRO_1KHZ

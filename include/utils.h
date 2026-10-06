@@ -9,6 +9,16 @@
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
 
+inline float __attribute__((always_inline)) deg_to_rad(float degrees)
+{
+    return degrees * DEG_TO_RAD;
+}
+
+inline float __attribute__((always_inline)) rad_to_deg(float radians)
+{
+    return radians * RAD_TO_DEG;
+}
+
 #define LEDC_FREQUENCY_HZ 50
 #define LEDC_PERIOD_US (1000000 / LEDC_FREQUENCY_HZ) // 20000 us
 

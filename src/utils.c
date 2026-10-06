@@ -199,7 +199,7 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK)
     {
-        ESP_LOGE("NVS", "Error opening NVS namespace for load '%s' [%s]", NVS_NAMESPACE, esp_err_to_name(err));
+        ESP_LOGE("NVS", "Error opening NVS namespace '%s' [%s]", NVS_NAMESPACE, esp_err_to_name(err));
         return err;
     }
 
@@ -210,7 +210,7 @@ esp_err_t nvs_load_struct(const char *key, void *data, size_t size)
     // Vérifie que la clé existe ET que la taille enregistrée correspond à la structure actuelle
     if (err == ESP_OK && required_size != size)
     {
-        ESP_LOGE("NVS", "Failed to load key -(length mismatch) %s %d %d", key, required_size, size);
+        ESP_LOGE("NVS", "Failed to load key (length mismatch) %s %d %d", key, required_size, size);
         return ESP_ERR_NVS_INVALID_LENGTH;
     }
     else if (err != ESP_OK)

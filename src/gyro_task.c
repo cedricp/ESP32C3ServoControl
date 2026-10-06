@@ -16,10 +16,8 @@
 #include "utils.h"
 #include "config.h"
 
-// #define GYRO_1KHZ
-
-#define MPU_ADDR    0x68
-#define I2C_FREQ_HZ 400000
+#define MPU_ADDR        0x68
+#define I2C_FREQ_HZ     400000
 
 #define REG_PWR_MGMT_1  0x6B
 #define REG_GYRO_CONFIG 0x1B
@@ -74,13 +72,13 @@ static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 extern bool g_invert_accel[3];
 
 // cutoff could be tuned for latency issue (less induces more lag)
-static FilterPT1 filter_gyro_roll;
-static FilterPT1 filter_gyro_pitch;
-static FilterPT1 filter_gyro_yaw;
+static filter_pt1 filterGyroRoll;
+static filter_pt1 filterGyroPitch;
+static filter_pt1 filterGyroYaw;
 
-static FilterPT1 filter_gyro_roll_low;
-static FilterPT1 filter_gyro_pitch_low;
-static FilterPT1 filter_gyro_yaw_low;
+static filter_pt1 filterGyroRoll_low;
+static filter_pt1 filterGyroPitch_low;
+static filter_pt1 filterGyroYaw_low;
 
 static void mpu_i2c_init(void)
 {
@@ -299,13 +297,13 @@ void gyro_control_task(void *pvParameters)
     gyro_data.ay = 0.0f;
     gyro_data.az = 0.0f;
 
-    initPT1Filter(&filter_gyro_roll,  GYRO_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filter_gyro_pitch, GYRO_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filter_gyro_yaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroRoll,  GYRO_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroPitch, GYRO_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroYaw,   GYRO_CUTOFF_FREQ, GYRO_DT);
 
-    initPT1Filter(&filter_gyro_roll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filter_gyro_pitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
-    initPT1Filter(&filter_gyro_yaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroRoll_low,  GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroPitch_low, GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
+    init_pt1_filter(&filterGyroYaw_low,   GYRO_LOW_CUTOFF_FREQ, GYRO_DT);
 
     if (nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK)
     {
@@ -342,13 +340,13 @@ void gyro_control_task(void *pvParameters)
                 raw_ay = gyro_data.ay * ACCEL_SCALE_8G;
                 raw_az = gyro_data.az * ACCEL_SCALE_8G;
 
-                clean_roll_rate_low   = applyPT1Filter(&filter_gyro_roll_low, rotx);
-                clean_pitch_rate_low  = applyPT1Filter(&filter_gyro_pitch_low, roty);
-                clean_yaw_rate_low    = applyPT1Filter(&filter_gyro_yaw_low, rotz);
+                clean_roll_rate_low  = apply_pt1_filter(&filterGyroRoll_low, gyro_data.rot_x);
+                clean_pitch_rate_low = apply_pt1_filter(&filterGyroPitch_low, gyro_data.rot_y);
+                clean_yaw_rate_low   = apply_pt1_filter(&filterGyroYaw_low, gyro_data.rot_z);
 
-                clean_roll_rate   = applyPT1Filter(&filter_gyro_roll, rotx);
-                clean_pitch_rate  = applyPT1Filter(&filter_gyro_pitch, roty);
-                clean_yaw_rate    = applyPT1Filter(&filter_gyro_yaw, rotz);
+                clean_roll_rate   = apply_pt1_filter(&filterGyroRoll, gyro_data.rot_x);
+                clean_pitch_rate  = apply_pt1_filter(&filterGyroPitch, gyro_data.rot_y);
+                clean_yaw_rate    = apply_pt1_filter(&filterGyroYaw, gyro_data.rot_z);
 
                 filter_accelerometer(raw_ax, raw_ay, raw_az, &clean_ax, &clean_ay, &clean_az);
 

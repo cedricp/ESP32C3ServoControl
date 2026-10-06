@@ -26,6 +26,7 @@ static esp_netif_t *esp_netif_handle = NULL;
 extern attitude_t   g_attitude;
 extern int          g_master_kp_gain_channel;
 extern int          g_master_kd_gain_channel;
+extern float        g_level_mode_gain;
 extern int          g_flightmode;
 extern int          g_flightmode_channel;
 extern int          g_ouput_mapping[NUM_PWM_OUPUTS];
@@ -172,6 +173,9 @@ esp_err_t config_post_handler(httpd_req_t *req)
     item = cJSON_GetObjectItem(json, "master_kd_gain");
     if (item)
         g_master_kd_gain_channel = item->valueint;
+
+    item =cJSON_GetObjectItem(json, "level_mode_gain");
+        g_level_mode_gain = item->valuedouble;
 
     item = cJSON_GetObjectItem(json, "flightmode_channel");
     if (item)
@@ -376,6 +380,7 @@ esp_err_t config_get_handler(httpd_req_t *req)
 
     cJSON_AddNumberToObject(json, "master_kp_gain", g_master_kp_gain_channel);
     cJSON_AddNumberToObject(json, "master_kd_gain", g_master_kd_gain_channel);
+    cJSON_AddNumberToObject(json, "level_mode_gain", g_level_mode_gain);
 
     cJSON_AddNumberToObject(json, "flightmode", g_flightmode);
     cJSON_AddNumberToObject(json, "flightmode_channel", g_flightmode_channel);
