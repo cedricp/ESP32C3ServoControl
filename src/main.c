@@ -59,8 +59,9 @@ bool        g_elrs_data_valid = false;
 float       g_crash_g_threshold = 16.f;
 float       g_level_mode_gain = 5.0f;
 float       g_tpa_value = 0.0f;
+
 volatile uint32_t g_esc_temperature = 0;
-volatile int16_t g_gyro_temperature = 0;
+volatile int16_t  g_gyro_temperature = 0;
 
 TaskHandle_t servo_task_handle     = NULL;
 TaskHandle_t crsf_rx_task_handle   = NULL;
@@ -82,6 +83,13 @@ PID_Config_t *get_pid_yaw(void)
 {
     return &g_pid_yaw;
 }
+
+static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us)
+{
+    // return (us * 16384) / 20000;
+    return (us * ((1 << LEDC_TIMER_14_BIT) - 1)) / LEDC_PERIOD_US;
+}
+
 
 void calibrate_roll(void)
 {

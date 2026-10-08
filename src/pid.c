@@ -132,7 +132,6 @@ IRAM_ATTR void compute_attitude(attitude_t *attitude, float ax, float ay, float 
 IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, float az, float dt)
 {
     float q0 = mahony.q0, q1 = mahony.q1, q2 = mahony.q2, q3 = mahony.q3;
-    float norm;
 
     // Convert degrees to radians
     gx *=  DEG_TO_RAD;
@@ -140,20 +139,22 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
     gz *=  DEG_TO_RAD;
 
     // Accel normalization
-    norm = ax * ax + ay * ay + az * az;
-
-    // Weighting the KP term to avoid instability (accelerometer confidence)
-    const float deviation = fast_fabsf(norm - 1.0f);
-    float weight = 1.0f - (deviation * 2.0f);
-    if (weight < 0.0f) weight = 0.0f;
-    const float kp_effective = MAHONY_KP * weight;
-
-    if (norm > 0.0001f)
+    const float squared_norm = ax * ax + ay * ay + az * az;
+    
+    if (squared_norm > 0.0001f)
     {
-        norm = fast_inv_sqrtf(norm);
-        ax *= norm;
-        ay *= norm;
-        az *= norm;
+        const float inv_norm = fast_inv_sqrtf(squared_norm);
+        const float norm = inv_norm * squared_norm;
+
+        // Weighting the KP term to avoid instability (accelerometer confidence)
+        const float deviation = fast_fabsf(norm - 1.0f);
+        float weight = 1.0f - (deviation * 2.0f);
+        if (weight < 0.0f) weight = 0.0f;
+        const float kp_effective = MAHONY_KP * weight;
+
+        ax *= inv_norm;
+        ay *= inv_norm;
+        az *= inv_norm;
 
         // Gravity estimation (Z axis)
         float vx = 2.0f * (q1 * q3 - q0 * q2);
@@ -166,7 +167,7 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
         float ez = (ax * vy - ay * vx);
 
         // Integral correction (simple anti-windup)
-        if (MAHONY_KI > 0.0f && deviation < 0.15f)
+        if (MAHONY_KI > 0.0f && weight > 0.0f)
         {
             mahony.ix += ex * MAHONY_KI * dt;
             mahony.iy += ey * MAHONY_KI * dt;
@@ -202,7 +203,7 @@ IRAM_ATTR void mahony_update(float gx, float gy, float gz, float ax, float ay, f
     q3 += ( qa * hc + qb * hb - qc * ha);
 
     // Quaternion normalization
-    norm = fast_inv_sqrtf(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+    float norm = fast_inv_sqrtf(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
     mahony.q0 = q0 * norm;
     mahony.q1 = q1 * norm;
     mahony.q2 = q2 * norm;

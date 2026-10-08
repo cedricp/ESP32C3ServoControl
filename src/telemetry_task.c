@@ -243,11 +243,19 @@ static void process_gyro_temperature()
 
 void telemetry_task(void *pvParameters)
 {
+    chrono_t chrono;
+    chrono_start(&chrono);
+
     while (1) {
         process_esc();
         process_gps();
-        process_attitude();
-        process_gyro_temperature();
+        if (chrono_elapsed_us(&chrono) > 200000)
+        {
+            process_attitude();
+            process_gyro_temperature();
+            
+            chrono_start(&chrono);
+        }
     }
 }
 

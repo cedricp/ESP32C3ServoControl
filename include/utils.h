@@ -66,6 +66,22 @@ typedef struct
     char valid;
 } servo_data_t;
 
+typedef struct {
+    int64_t start_us;
+} chrono_t;
+
+static inline void chrono_start(chrono_t *c) {
+    c->start_us = esp_timer_get_time();
+}
+
+static inline int64_t chrono_elapsed_us(const chrono_t *c) {
+    return esp_timer_get_time() - c->start_us;
+}
+
+static inline int64_t chrono_elapsed_ms(const chrono_t *c) {
+    return (esp_timer_get_time() - c->start_us) / 1000;
+}
+
 static inline uint8_t __attribute__((always_inline)) calculate_crc8_kiss(const uint8_t *ptr, uint8_t len) {
     uint8_t crc = 0;
     while (len--) {
