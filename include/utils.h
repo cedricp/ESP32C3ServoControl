@@ -234,6 +234,15 @@ inline uint16_t __attribute__((always_inline)) clampui(uint16_t value, uint16_t 
     return value;
 }
 
+inline int16_t __attribute__((always_inline)) clampi(int16_t value, int16_t min, int16_t max)
+{
+    if (value < min)
+        return min;
+    if (value > max)
+        return max;
+    return value;
+}
+
 inline uint16_t __attribute__((always_inline)) map_to_pwm(float x)
 {
     return (uint16_t)(x * 500.0f + 1500.0f);

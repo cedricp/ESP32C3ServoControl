@@ -227,8 +227,10 @@ void load_attitude_correction()
 
 void init_pid_factory()
 {
-    g_master_kp_gain_channel = 5;
-    g_flightmode_channel = 6;
+    g_master_kp_gain_channel = CHANNEL_KP_GAIN;
+    g_master_kd_gain_channel = CHANNEL_KD_GAIN;
+    g_flightmode_channel     = CHANNEL_FLIGHTMODE;
+    g_instant_trim_channel   = CHANNEL_INSTANT_TRIM;
     init_pid(&g_pid_roll,  1.0f, 0.0f, 0.0001f, 250.f, false);
     init_pid(&g_pid_pitch, 1.0f, 0.0f, 0.0001f, 150.f, false);
     init_pid(&g_pid_yaw,   1.0f, 0.0f, 0.0002f, 120.f, false);
@@ -556,6 +558,7 @@ void servo_update_task(void *pvParameters)
                 float pitch_bump = (1.0f - fast_cosf(roll_rad)) * 12.0f;
 
                 float stick_input_pitch  = rx_data.values_norm[CHANNEL_ELEVATOR];
+                // TODO : Check if pitch_bump should be added or subtracted based on roll direction
                 float target_angle_pitch = (stick_input_pitch * 35.0f) + pitch_bump; // -35° à +35°
                 float target_rate_pitch  = g_level_mode_gain * (target_angle_pitch - attitude_pitch);
                 target_rate_pitch        = clampf(target_rate_pitch, -g_pid_pitch.max_rate_degs, g_pid_pitch.max_rate_degs);
