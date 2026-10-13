@@ -78,7 +78,7 @@ IRAM_ATTR float compute_axis_pid(float stick_input, float target_rate, float mea
     float output = stick_input + gyro_correction;
 
     // h. Clamp output to [-1.0, 1.0] range
-    clampf(output, -1.0f, 1.0f);
+    output = clampf(output, -1.0f, 1.0f);
 
     return output;
 }
@@ -86,7 +86,7 @@ IRAM_ATTR float compute_axis_pid(float stick_input, float target_rate, float mea
 #define ALPHA 0.98f // 98% Gyro, 2% Accel
 
 /*
- * @brief Compute the attitude using a complementary filter combining gyro and accelerometer data.
+ * @brief Compute the attitude using a (madgwick) complementary filter combining gyro and accelerometer data.
  * @param attitude Pointer to the attitude structure to update.
  * @param ax, ay, az Accelerometer readings in g.
  * @param gyro_roll_deg_s, gyro_pitch_deg_s Gyro readings in deg/s.

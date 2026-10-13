@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <stdbool.h>
+#include "esp_timer.h"
 #include "esp_err.h"
 #include "config.h"
 
@@ -27,8 +28,8 @@ extern const uint8_t crc8_0xd5_tab[256];
 
 typedef enum
 {
-    FLIGHTMODE_FREE = 0,
-    FLIGHTMODE_STAB = 1,
+    FLIGHTMODE_FREE  = 0,
+    FLIGHTMODE_STAB  = 1,
     FLIGHTMODE_LEVEL = 2
 } flightmode_t;
 
@@ -195,19 +196,24 @@ inline float __attribute__((always_inline)) fast_asinf(float x)
     return (x < 0.0f) ? -res : res;
 }
 
-inline float __attribute__((always_inline)) fast_cosf(float x) {
-    // Convert cos(x) = sin(x + PI/2)
-    x += (M_PI / 2.0f);
-    
-    if (x > M_PI)  x -= (2.0f*M_PI);
+inline float __attribute__((always_inline)) fast_sinf(float x)
+{
+    // Wrap angle to [-PI, PI]
+    if (x > M_PI)  x -= 2.0f * M_PI;
+    if (x < -M_PI) x += 2.0f * M_PI;
 
-    const float B = (4.0f / M_PI);
-    const float C = -4.0f / (M_PI*M_PI); // -4/(PI^2)
+    const float B = 4.0f / M_PI;
+    const float C = -4.0f / (M_PI * M_PI);
 
-    float y = B * x + C * x * ((x < 0) ? -x : x);
+    float y = B * x + C * x * ((x < 0.0f) ? -x : x);
 
     const float P = 0.225f;
-    return P * (y * ((y < 0) ? -y : y) - y) + y;
+    return P * (y * ((y < 0.0f) ? -y : y) - y) + y;
+}
+
+inline float __attribute__((always_inline)) fast_cosf(float x) {
+    // Convert cos(x) = sin(x + PI/2)
+    return fast_sinf(x + (M_PI / 2.0f));
 }
 
 inline float __attribute__((always_inline)) clampf(float value, float min, float max)
