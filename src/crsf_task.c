@@ -151,7 +151,7 @@ void crsf_task_rx(void *pvParameters)
             for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++)
             {
                 const int16_t crsf_value = clampui(crsf_get_channel(ch, payload), 174, 1811);
-                const int16_t pwm_us = (crsf_value - 992) * 5 >> 3;
+                const int16_t pwm_us = clampi((crsf_value - 992) * 5 >> 3, -500, 500);
                 tx_data.values_norm[ch]  = pwm_us * (1.0f / 500.0f);
                 tx_data.us_values[ch]    = 1500 + pwm_us;
             }
