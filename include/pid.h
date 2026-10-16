@@ -5,7 +5,6 @@ typedef struct {
     float Ki;           // Gain Intégral (corrige les dérives lentes)
     float Kd;           // Gain Dérivé (amortit les oscillations)
     float max_rate_degs;  // Vitesse de rotation maximale (ex: 250.0 deg/s)
-    int   invert;        // Inversion du signal de rotation
     char  checksum;
     float integral_acc;  // Accumulateur de l'erreur intégrale
     float prev_measured_rate;

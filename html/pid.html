@@ -421,13 +421,6 @@
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="roll_rate_v">250</span></div>
                     <input type="range" id="roll_rate" min="50" max="500" step="10" value="250">
                 </div>
-
-                <div class="control-group checkbox-group">
-                    <label for="roll_invert" class="checkbox-label">
-                        <span>Invert</span>
-                        <input type="checkbox" id="roll_invert">
-                    </label>
-                </div>
             </div>
 
             <div class="card">
@@ -444,13 +437,6 @@
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="pitch_rate_v">150</span></div>
                     <input type="range" id="pitch_rate" min="50" max="500" step="10" value="150">
                 </div>
-
-                <div class="control-group checkbox-group">
-                    <label for="pitch_invert" class="checkbox-label">
-                        <span>Invert</span>
-                        <input type="checkbox" id="pitch_invert">
-                    </label>
-                </div>
             </div>
 
             <div class="card">
@@ -466,13 +452,6 @@
                 <div class="control-group">
                     <div class="control-label"><span>Max Rate (°/s)</span><span class="val" id="yaw_rate_v">120</span></div>
                     <input type="range" id="yaw_rate" min="50" max="500" step="10" value="120">
-                </div>
-
-                <div class="control-group checkbox-group">
-                    <label for="yaw_invert" class="checkbox-label">
-                        <span>Invert</span>
-                        <input type="checkbox" id="yaw_invert">
-                    </label>
                 </div>
             </div>
 
@@ -773,18 +752,15 @@
             roll_kp: parseFloat(document.getElementById('roll_kp').value),
             roll_kd: parseFloat(document.getElementById('roll_kd').value),
             roll_rate: parseFloat(document.getElementById('roll_rate').value),
-            roll_invert: document.getElementById('roll_invert').checked,
             
             pitch_kp: parseFloat(document.getElementById('pitch_kp').value),
             pitch_kd: parseFloat(document.getElementById('pitch_kd').value),
             pitch_rate: parseFloat(document.getElementById('pitch_rate').value),
-            pitch_invert: document.getElementById('pitch_invert').checked,
 
             
             yaw_kp: parseFloat(document.getElementById('yaw_kp').value),
             yaw_kd: parseFloat(document.getElementById('yaw_kd').value),
             yaw_rate: parseFloat(document.getElementById('yaw_rate').value),
-            yaw_invert: document.getElementById('yaw_invert').checked,
 
             invertax: document.getElementById('invertax').checked,
             invertay: document.getElementById('invertay').checked,

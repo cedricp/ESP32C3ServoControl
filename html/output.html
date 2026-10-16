@@ -158,8 +158,21 @@
             pointer-events: none; /* Empêche les clics de souris */
         }
 
+        .output-card {
+            height: auto;
+            overflow: visible;
+        }
+        
+
         button:hover { background-color: var(--accent-hover); }
         button:disabled { background-color: #444; cursor: not-allowed; }
+
+        #output_status {
+            font-family: monospace; /* Aligne proprement les chiffres */
+            font-size: 0.8rem;
+            line-height: 1.8;      /* Donne de l'espace vertical entre chaque ligne de canaux */
+            white-space: normal;
+        }
 
         #statusPWM {
             text-align: center;
@@ -194,7 +207,11 @@
     <header>
         <h1>PWM Outputs</h1>
     </header>
-    
+
+    <div class="card output-card">
+        <div id="output_status"></div>
+    </div>
+
     <div class="forms-wrapper">
         <form id="Channel0">   
             <div class="card">
@@ -462,6 +479,47 @@
         });
         loadConfig();
     }
+
+    function refreshElements() {
+        const out_status = document.getElementById('output_status');
+        fetch('/api/rtinfo')
+        .then(response => {
+            if (!response.ok) throw new Error('Network error');
+            return response.json();
+        })
+        .then(data => {
+            // 1. On liste tous les canaux que tu souhaites afficher
+            const channels = [
+                { name: 'Ch1', val: data.ch1 },
+                { name: 'Ch2', val: data.ch2 },
+                { name: 'Ch3', val: data.ch3 },
+                { name: 'Ch4', val: data.ch4 },
+                { name: 'Ch5', val: data.ch5 },
+                { name: 'Ch6', val: data.ch6 },
+                { name: 'Ch7', val: data.ch7 },
+                { name: 'Ch8', val: data.ch8 },
+                { name: 'Ch9', val: data.ch9 },
+                { name: 'Ch10', val: data.ch10 },
+                { name: 'Ch11', val: data.ch11 },
+                { name: 'Ch12', val: data.ch12 }
+            ];
+
+            // 2. On formate chaque canal en texte (ex: "Ch1: 23.4")
+            const formatted = channels.map(ch => `${ch.name}: ${ch.val.toFixed(1)}`);
+
+            // 3. On regroupe les éléments par paquets de 3 et on joint avec des sauts de ligne
+            const lines = [];
+            for (let i = 0; i < formatted.length; i += 3) {
+                lines.push(formatted.slice(i, i + 3).join(' | ')); // Tu peux remplacer ' | ' par un espace simple si tu préfères
+            }
+
+            // 4. On injecte le tout dans le DOM
+            out_status.innerHTML = lines.join('<br>');
+        })
+        .catch(err => console.error("Error :", err));
+    }
+
+    setInterval(refreshElements, 500);
 
     function saveConfigPWM() {
         const btn = document.getElementById('saveBtnPWM');

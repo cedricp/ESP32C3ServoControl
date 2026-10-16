@@ -140,9 +140,9 @@ IRAM_ATTR static esp_err_t mpu_read_gyro(gyro_t *out, const int16_t *offsets)
 
     if (offsets != NULL)
     {
-        out->rot_x = (float)(gx - offsets[0]); // Explicit cast for clarity
-        out->rot_y = (float)(gy - offsets[1]);
-        out->rot_z = (float)(gz - offsets[2]);
+        out->rot_x = gx - offsets[0];
+        out->rot_y = gy - offsets[1];
+        out->rot_z = gz - offsets[2];
     }
     else
     {

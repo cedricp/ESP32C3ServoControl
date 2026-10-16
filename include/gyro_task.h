@@ -16,3 +16,4 @@ typedef struct
 void gyro_supervisor_task(void *pvParameters);
 void get_gyro_data(gyro_data_t *data);
 void gyro_init();
+void gyro_calib(void);

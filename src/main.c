@@ -108,14 +108,13 @@ static inline bool is_elrs_armed()
     return g_elrs_armed;
 }
 
-static void init_pid(PID_Config_t *pid, float Kp, float Ki, float Kd, float max_rate_degs, bool invert)
+static void init_pid(PID_Config_t *pid, float Kp, float Ki, float Kd, float max_rate_degs)
 {
     pid->Kp = Kp;
     pid->Ki = Ki;
     pid->Kd = Kd;
 
     pid->max_rate_degs = max_rate_degs;
-    pid->invert      = invert;
     pid->integral_acc = 0.0f;
     pid->prev_measured_rate = 0.0f;
 }
@@ -231,9 +230,9 @@ void init_pid_factory()
     g_master_kd_gain_channel = CHANNEL_KD_GAIN;
     g_flightmode_channel     = CHANNEL_FLIGHTMODE;
     g_instant_trim_channel   = CHANNEL_INSTANT_TRIM;
-    init_pid(&g_pid_roll,  1.0f, 0.0f, 0.0001f, 250.f, false);
-    init_pid(&g_pid_pitch, 1.0f, 0.0f, 0.0001f, 150.f, false);
-    init_pid(&g_pid_yaw,   1.0f, 0.0f, 0.0002f, 120.f, false);
+    init_pid(&g_pid_roll,  1.0f, 0.0f, 0.0001f, 250.f);
+    init_pid(&g_pid_pitch, 1.0f, 0.0f, 0.0001f, 150.f);
+    init_pid(&g_pid_yaw,   1.0f, 0.0f, 0.0002f, 120.f);
     g_invert_accel[0] = false;
     g_invert_accel[1] = false;
     g_invert_accel[2] = false;
@@ -414,18 +413,6 @@ static inline bool shock_detector(gyro_data_t* gyro_data)
     return (jerk_factor > g_crash_g_threshold) || (jerk_factor > (g_crash_g_threshold * 0.4f) && gyro_sq > (480.0f*480.0f));
 }
 
-static inline void instant_horizontal_trim(uint16_t channel_value)
-{
-    static bool on = false;
-    if (channel_value> 1600 && !on)
-    {
-        on = true;
-        calibrate_pitch();
-    } else {
-        on = false;
-    }
-}
-
 // ==========================================
 // Servo managemenent task
 // ==========================================
@@ -488,17 +475,13 @@ void servo_update_task(void *pvParameters)
 #else
             compute_attitude(&g_attitude, gyro_data.ax, gyro_data.ay, gyro_data.az, gyro_data.rot_x, gyro_data.rot_y, dt);
 #endif
-            if (g_instant_trim_channel >= 0 && g_instant_trim_channel < 12)
-            {
-                instant_horizontal_trim(rx_data.us_values[g_instant_trim_channel]);
-            }
             g_gyro_temperature = gyro_data.temp;
 
             const float throttle_normalized = rx_data.values_norm[CHANNEL_THROTTLE];
             if (throttle_normalized > 0.0f)
             {
                 // Attenuation of PID gains based on throttle position to reduce oscillations at high throttle
-                // 0-50% no attenuation, 50-100% linear attenuation down to {g_tpa_value}% of original gain
+                // 0-50% no attenuation, 50-100% linear attenuation down to {g_tpa_value x 100}% of original gain
                 throttle_pid_attenuation = 1.0f - (throttle_normalized * g_tpa_value);
             }
         }
@@ -507,6 +490,15 @@ void servo_update_task(void *pvParameters)
 
         if (rx_data.valid)
         {
+            if (g_instant_trim_channel >= 0 && g_instant_trim_channel < 12 && (rx_data.us_values[g_instant_trim_channel] > 1600) )
+            {
+                if (g_elrs_armed){
+                    calibrate_pitch();
+                } else {
+                    gyro_calib();
+                }
+            }
+
             if (g_master_kp_gain_channel >= 0 && g_master_kp_gain_channel < 12)
             {
                 // Update master kp gain
@@ -554,12 +546,11 @@ void servo_update_task(void *pvParameters)
                 float target_rate_roll  = g_level_mode_gain * (target_angle_roll - attitude_roll);
                 target_rate_roll        = clampf(target_rate_roll, -g_pid_roll.max_rate_degs, g_pid_roll.max_rate_degs);
 
-                float roll_rad = attitude_roll * DEG_TO_RAD;
-                float pitch_bump = (1.0f - fast_cosf(roll_rad)) * 12.0f;
+                float roll_rad = deg_to_rad(attitude_roll);
+                float pitch_bump = (1.0f - fast_cosf(roll_rad)) * 20.0f;
 
                 float stick_input_pitch  = rx_data.values_norm[CHANNEL_ELEVATOR];
-                // TODO : Check if pitch_bump should be added or subtracted based on roll direction
-                float target_angle_pitch = (stick_input_pitch * 35.0f) + pitch_bump; // -35° à +35°
+                float target_angle_pitch = (stick_input_pitch * 35.0f) - pitch_bump; // -35° à +35°
                 float target_rate_pitch  = g_level_mode_gain * (target_angle_pitch - attitude_pitch);
                 target_rate_pitch        = clampf(target_rate_pitch, -g_pid_pitch.max_rate_degs, g_pid_pitch.max_rate_degs);
 

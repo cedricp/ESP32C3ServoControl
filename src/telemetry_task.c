@@ -43,6 +43,14 @@ static bool parse_kiss_frame(const uint8_t *frame, esc_telemetry_t *data) {
     return true;
 }
 
+static void switch_uart_rx_pin(gpio_num_t new_rx_pin)
+{
+    uart_disable_rx_intr(GPS_UART_PORT);
+    uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, new_rx_pin, GPIO_NUM_NC, GPIO_NUM_NC);
+    uart_flush_input(GPS_UART_PORT);
+    uart_enable_rx_intr(GPS_UART_PORT);
+}
+
 static void gps_set_rate(uint16_t rate_ms) {
     uint8_t cfg_rate_msg[] = {
         0xB5, 0x62,         // Sync chars
@@ -60,7 +68,7 @@ static void gps_set_rate(uint16_t rate_ms) {
 
     // Calcul du checksum UBX sur la classe, l'ID, la longueur et le payload (du byte 2 au byte 11)
     uint8_t CK_A = 0, CK_B = 0;
-    for (int i = 2; i < 10; i++) {
+    for (int i = 2; i < 12; i++) {
         update_checksum(cfg_rate_msg[i], &CK_A, &CK_B);
     }
 
@@ -76,13 +84,12 @@ static void gps_set_rate(uint16_t rate_ms) {
 static void process_esc()
 {
     uint8_t byte;
-    uint8_t frame[20];
+    uint8_t frame[20] = {0};
     uint8_t frame_idx = 0;
     esc_telemetry_t esc_telemetry_data;
 
-    uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, ESC_RX_GPIO, GPIO_NUM_NC, GPIO_NUM_NC);
-    uart_flush_input(GPS_UART_PORT);
-    
+    switch_uart_rx_pin(ESC_RX_GPIO);
+
     while(1)
     {
         if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(200)) > 0) 
@@ -110,6 +117,7 @@ static void process_esc()
                         crsf_send_temp(esc_telemetry_data.temperature*10, 1);
                         crsf_send_rpm(esc_telemetry_data.erpm/(g_motor_magnets_count/2));
                         last_esc_frame_time = esp_timer_get_time();
+                        g_esc_temperature = esc_telemetry_data.temperature;
                         return;
                     }
                 }
@@ -138,8 +146,7 @@ static void process_gps()
     crsf_telemetry_gps_t crsf_gps_data;
     memset(&crsf_gps_data, 0, sizeof(crsf_telemetry_gps_t));
 
-    uart_set_pin(GPS_UART_PORT, GPIO_NUM_NC, GPS_RX_PIN, GPIO_NUM_NC, GPIO_NUM_NC);
-    uart_flush_input(GPS_UART_PORT);
+    switch_uart_rx_pin(GPS_RX_PIN);
     while(1)
     {
         if (uart_read_bytes(GPS_UART_PORT, &byte, 1, pdMS_TO_TICKS(200)) > 0) 
@@ -273,5 +280,5 @@ void gps_init()
     };
     
     uart_param_config(GPS_UART_PORT, &uart_config);
-    uart_set_pin(GPS_UART_PORT, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    switch_uart_rx_pin(GPS_RX_PIN);
 }
