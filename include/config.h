@@ -36,4 +36,7 @@
 #define MAX_I_TERM 0.2f
 #define MAHONY_KP  0.5f
 #define MAHONY_KI  0.005f
+
+// Gyro config
 // #define GYRO_1KHZ
+#define LEVEL_MODE_MAHONY

@@ -151,8 +151,8 @@ void crsf_task_rx(void *pvParameters)
             for (int ch = 0; ch < NUM_CRSF_CHANNELS; ch++)
             {
                 const int16_t crsf_value = clampui(crsf_get_channel(ch, payload), 174, 1811);
-                const int16_t pwm_us = clampi((crsf_value - 992) * 5 >> 3, -500, 500);
-                tx_data.values_norm[ch]  = pwm_us * (1.0f / 500.0f);
+                const int16_t pwm_us     = clampi((crsf_value - 992) * 5 >> 3, -500, 500);
+                tx_data.norm_values[ch]  = pwm_us * (1.0f / 500.0f);
                 tx_data.us_values[ch]    = 1500 + pwm_us;
             }
             if (xSemaphoreTake(g_crsf_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
@@ -215,7 +215,7 @@ void forward_gps_to_elrs(const ubx_nav_pvt_t *u_blox_data, crsf_telemetry_gps_t 
     elrs_data->ground_speed = (uint16_t)((u_blox_data->gSpeed * 36) / 1000);
 
     // Convert heading: u-blox (Degrees * 10^-5) to ELRS (Degrees * 100)
-    elrs_data->heading = (uint16_t)(u_blox_data->heading / 1000);
+    elrs_data->heading = (uint16_t)(u_blox_data->headMot / 1000);
 
     // Convert altitude: u-blox (mm) to ELRS (meters + 1000m offset)
     elrs_data->altitude = (uint16_t)((u_blox_data->hMSL / 1000) + 1000);
@@ -280,7 +280,7 @@ void crsf_send_battery_packet(uint16_t voltage_v_times_10, uint16_t current_a_ti
     // Convert 32-bit mAh to 24-bit Big-Endian (3 bytes)
     payload_ptr[4] = (uint8_t)((fuel_mah >> 16) & 0xFF);
     payload_ptr[5] = (uint8_t)((fuel_mah >> 8) & 0xFF);
-    payload_ptr[6] = (uint8_t)(fuel_mah & 0xFF);
+    payload_ptr[6] = (uint8_t) (fuel_mah & 0xFF);
     
     // Copy remaining capacity percentage (1 byte, no endianness swap needed)
     payload_ptr[7] = percent;

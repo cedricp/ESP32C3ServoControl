@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include <math.h>
-#include <stdbool.h>
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "config.h"
@@ -63,8 +62,8 @@ typedef enum
 typedef struct
 {
     uint16_t us_values[NUM_CRSF_CHANNELS];
-    float  values_norm[NUM_CRSF_CHANNELS];
-    char valid;
+    float    norm_values[NUM_CRSF_CHANNELS];
+    char     valid;
 } servo_data_t;
 
 typedef struct {

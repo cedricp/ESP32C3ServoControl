@@ -1,5 +1,3 @@
-#include <stdint.h>
-#include <stdlib.h>
 #include <math.h>
 #include <utils.h>
 #include "pid.h"
@@ -27,9 +25,10 @@ static MahonyFilter mahony = {.q0 = 1.0f, .q1 = 0.0f, .q2 = 0.0f, .q3 = 0.0f, .i
 IRAM_ATTR float compute_axis_pid(float stick_input, float target_rate, float measured_rate, float measured_rate_low, float dt, float master_kp_gain, float master_kd_gain, PID_Config_t *pid, char use_stick_factor)
 {
     float i_term = 0.0f;
+    const float inv_max_rate = 1.0f / pid->max_rate_degs;
 
     // a. Angular rate error normalized to [-1.0, 1.0] range
-    float error_nomalized = (target_rate - measured_rate) / pid->max_rate_degs;
+    float error_nomalized = (target_rate - measured_rate) * inv_max_rate;
 
     // b. Stick Derating : reduce correction when stick is near the end of travel to avoid overshoot
     float stick_factor = 1.0f;
@@ -61,7 +60,7 @@ IRAM_ATTR float compute_axis_pid(float stick_input, float target_rate, float mea
     if (dt > 0.0f)
     {
         float raw_derivative = -(measured_rate_low - pid->prev_measured_rate) / dt;
-        float d_normalized = raw_derivative / pid->max_rate_degs;
+        float d_normalized = raw_derivative * inv_max_rate;
         d_term = pid->Kd * d_normalized * master_kd_gain;
     }
     pid->prev_measured_rate = measured_rate_low;

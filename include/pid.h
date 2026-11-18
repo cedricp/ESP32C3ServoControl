@@ -1,19 +1,19 @@
 #pragma once
 
 typedef struct {
-    float Kp;           // Gain Proportionnel (réponse immédiate à l'erreur)
-    float Ki;           // Gain Intégral (corrige les dérives lentes)
-    float Kd;           // Gain Dérivé (amortit les oscillations)
-    float max_rate_degs;  // Vitesse de rotation maximale (ex: 250.0 deg/s)
+    float Kp;               // Gain Proportionnel (réponse immédiate à l'erreur)
+    float Ki;               // Gain Intégral (corrige les dérives lentes)
+    float Kd;               // Gain Dérivé (amortit les oscillations)
+    float max_rate_degs;    // Vitesse de rotation maximale (ex: 250.0 deg/s)
     char  checksum;
-    float integral_acc;  // Accumulateur de l'erreur intégrale
+    float integral_acc;     // Accumulateur de l'erreur intégrale
     float prev_measured_rate;
 } PID_Config_t;
 
 typedef struct  {
-    float roll_deg; // Inclinaison en Roulis (-180° à +180°)
-    float pitch_deg; // Inclinaison en Tangage (-90° à +90°)
-    float yaw_deg; // Orientation en Lacet (0° à 360°)
+    float roll_deg;     // Inclinaison en Roulis (-180° à +180°)
+    float pitch_deg;    // Inclinaison en Tangage (-90° à +90°)
+    float yaw_deg;      // Orientation en Lacet (0° à 360°)
 } attitude_t;
 
 float compute_axis_pid(float stickInput, float targetRate, float measuredRate, float measuredRate_low, float dt, float master_kp_gain, float master_kd_gain, PID_Config_t *pid, char useStickFactor);

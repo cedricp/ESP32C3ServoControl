@@ -5,14 +5,12 @@
 #include "filter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
-#include "pid.h"
 #include "utils.h"
 #include "config.h"
 
@@ -58,7 +56,7 @@ typedef struct
     int32_t rot_x, rot_y, rot_z; // deg/s
     int32_t ax, ay, az;          // m/s^2
     int16_t temp;                // °C
-    char valid;
+    char    valid;
 } gyro_t;
 
 gyro_data_t g_gyro_data;

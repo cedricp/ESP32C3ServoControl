@@ -5,8 +5,6 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
-#include "lwip/err.h"
-#include "lwip/sys.h"
 #include "cJSON.h"
 #include <string.h>
 #include <esp_log.h>
@@ -121,7 +119,6 @@ esp_err_t config_post_handler(httpd_req_t *req)
     item = cJSON_GetObjectItem(json, "roll_rate");
     if (item)
         g_pidroll_config->max_rate_degs = item->valuedouble;
-    item = cJSON_GetObjectItem(json, "roll_invert");
 
     // Pitch
     item = cJSON_GetObjectItem(json, "pitch_kp");
@@ -144,7 +141,6 @@ esp_err_t config_post_handler(httpd_req_t *req)
     item = cJSON_GetObjectItem(json, "yaw_rate");
     if (item)
         g_pidyaw_config->max_rate_degs = item->valuedouble;
-    item = cJSON_GetObjectItem(json, "yaw_invert");
 
     item = cJSON_GetObjectItem(json, "master_kp_gain");
     if (item)
@@ -474,7 +470,6 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
 
 static esp_err_t rtinfo_handler(httpd_req_t *req)
 {
-    // 1. Créer l'objet JSON avec cJSON
     gyro_data_t gyro_data;
     servo_data_t g_servo_data;
     get_gyro_data(&gyro_data);
@@ -488,18 +483,18 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "att_roll",  g_attitude.roll_deg + g_attitude_correction_rp[0]);
     cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitch_deg + g_attitude_correction_rp[1]);
 
-    cJSON_AddNumberToObject(root, "ch1", g_servo_data.values_norm[0]);
-    cJSON_AddNumberToObject(root, "ch2", g_servo_data.values_norm[1]);
-    cJSON_AddNumberToObject(root, "ch3", g_servo_data.values_norm[2]);
-    cJSON_AddNumberToObject(root, "ch4", g_servo_data.values_norm[3]);
-    cJSON_AddNumberToObject(root, "ch5", g_servo_data.values_norm[5]);
-    cJSON_AddNumberToObject(root, "ch6", g_servo_data.values_norm[6]);
-    cJSON_AddNumberToObject(root, "ch7", g_servo_data.values_norm[7]);
-    cJSON_AddNumberToObject(root, "ch8", g_servo_data.values_norm[8]);
-    cJSON_AddNumberToObject(root, "ch9", g_servo_data.values_norm[9]);
-    cJSON_AddNumberToObject(root, "ch10", g_servo_data.values_norm[10]);
-    cJSON_AddNumberToObject(root, "ch11", g_servo_data.values_norm[11]);
-    cJSON_AddNumberToObject(root, "ch12", g_servo_data.values_norm[12]);
+    cJSON_AddNumberToObject(root, "ch1", g_servo_data.norm_values[0]);
+    cJSON_AddNumberToObject(root, "ch2", g_servo_data.norm_values[1]);
+    cJSON_AddNumberToObject(root, "ch3", g_servo_data.norm_values[2]);
+    cJSON_AddNumberToObject(root, "ch4", g_servo_data.norm_values[3]);
+    cJSON_AddNumberToObject(root, "ch5", g_servo_data.norm_values[5]);
+    cJSON_AddNumberToObject(root, "ch6", g_servo_data.norm_values[6]);
+    cJSON_AddNumberToObject(root, "ch7", g_servo_data.norm_values[7]);
+    cJSON_AddNumberToObject(root, "ch8", g_servo_data.norm_values[8]);
+    cJSON_AddNumberToObject(root, "ch9", g_servo_data.norm_values[9]);
+    cJSON_AddNumberToObject(root, "ch10", g_servo_data.norm_values[10]);
+    cJSON_AddNumberToObject(root, "ch11", g_servo_data.norm_values[11]);
+    cJSON_AddNumberToObject(root, "ch12", g_servo_data.norm_values[12]);
 
     const char *json_response = cJSON_PrintUnformatted(root);
 
