@@ -35,6 +35,10 @@
 
 #define MPU6500_TEMP_INV_SENSITIVITY (1.0f / 333.87f)
 
+#define GYRO_CAL_SAMPLES      500
+#define GYRO_MOVE_THRESHOLD   150 
+#define GYRO_MAX_RETRIES      10
+
 #ifdef  GYRO_1KHZ
 #define GYRO_DT 0.001f // 1ms
 #define MPU_SR_DIV 0
@@ -43,6 +47,8 @@
 #define MPU_SR_DIV 1
 #endif
 
+#define HEARTBEAT last_heartbeat = xTaskGetTickCount();
+
 static i2c_master_bus_handle_t i2c_mpu_bus_handle = NULL;
 static i2c_master_dev_handle_t i2c_mpu_dev_handle = NULL;
 static SemaphoreHandle_t g_gyro_mutex = NULL;
@@ -50,6 +56,8 @@ static TaskHandle_t gyro_task_handle = NULL;
 extern TaskHandle_t servo_task_handle;
 
 static volatile TickType_t last_heartbeat = 0;
+static volatile int32_t    g_gyrotask_launched = 0;
+extern volatile int32_t g_gyro_calibrated;
 
 typedef struct
 {
@@ -167,31 +175,83 @@ IRAM_ATTR void get_gyro_data(gyro_data_t *data)
     }
 }
 
-static void mpu_calibrate_gyro(int16_t *gyro_offsets)
+static bool mpu_calibrate_gyro(int16_t *gyro_offsets)
 {
     int32_t sum_x = 0, sum_y = 0, sum_z = 0;
     int valid_samples = 0;
-    gyro_t gyro_data;
+    int retries = 0;
+    bool has_prev = false;
+    gyro_data_t gyro_data = {0};
+    gyro_data_t prev_data = {0};
+    g_gyro_calibrated = 0;
 
     ESP_LOGI("MPU", "Gyro calibration... Do not move the model.");
 
-    while (valid_samples < 500)
+    while (valid_samples < GYRO_CAL_SAMPLES)
     {
-        if (mpu_read_gyro(&gyro_data, NULL) == ESP_OK)
+        get_gyro_data(&gyro_data);
+        if (!gyro_data.valid)
         {
-            sum_x += (int32_t)gyro_data.rot_x;
-            sum_y += (int32_t)gyro_data.rot_y;
-            sum_z += (int32_t)gyro_data.rot_z;
-            valid_samples++;
+            ESP_LOGW("MPU", "Failed to read gyro data during calibration.");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            HEARTBEAT
+            continue;
         }
+        if (has_prev)
+        {
+            int32_t dx = abs((int32_t)gyro_data.raw_rx - (int32_t)prev_data.raw_rx);
+            int32_t dy = abs((int32_t)gyro_data.raw_ry - (int32_t)prev_data.raw_ry);
+            int32_t dz = abs((int32_t)gyro_data.raw_rz - (int32_t)prev_data.raw_rz);
+
+            if (dx > GYRO_MOVE_THRESHOLD || dy > GYRO_MOVE_THRESHOLD || dz > GYRO_MOVE_THRESHOLD)
+            {
+                retries++;
+                ESP_LOGW("MPU", "Move detected (dx=%ld, dy=%ld, dz=%ld) -> res (%d/%d)",
+                            (long)dx, (long)dy, (long)dz, retries, GYRO_MAX_RETRIES);
+
+                sum_x = 0;
+                sum_y = 0;
+                sum_z = 0;
+                valid_samples = 0;
+                has_prev = false;
+
+                if (retries >= GYRO_MAX_RETRIES)
+                {
+                    ESP_LOGE("MPU", "Too many moves during calibration, aborting.");
+                    return false;
+                }
+                HEARTBEAT
+                vTaskDelay(pdMS_TO_TICKS(50)); 
+                HEARTBEAT
+                continue;
+            }
+        }
+
+        sum_x += (int32_t)gyro_data.raw_rx;
+        sum_y += (int32_t)gyro_data.raw_ry;
+        sum_z += (int32_t)gyro_data.raw_rz;
+        prev_data = gyro_data;
+        has_prev = true;
+        valid_samples++;
+
+        HEARTBEAT
         vTaskDelay(pdMS_TO_TICKS(2));
     }
 
-    gyro_offsets[0] = (int16_t)(sum_x / valid_samples);
-    gyro_offsets[1] = (int16_t)(sum_y / valid_samples);
-    gyro_offsets[2] = (int16_t)(sum_z / valid_samples);
+    if (valid_samples > 100)
+    {
+        gyro_offsets[0] = (int16_t)(sum_x / valid_samples);
+        gyro_offsets[1] = (int16_t)(sum_y / valid_samples);
+        gyro_offsets[2] = (int16_t)(sum_z / valid_samples);
+        ESP_LOGI("MPU", "Calculated offsets (%d samples) -> GX: %d, GY: %d, GZ: %d",
+                 valid_samples, gyro_offsets[0], gyro_offsets[1], gyro_offsets[2]);
+    } else {
+        ESP_LOGE("MPU", "Not enough valid samples for calibration (%d/%d)", valid_samples, GYRO_CAL_SAMPLES);
+        return false;
+    }
 
-    ESP_LOGI("MPU", "Offsets calculés -> GX: %d, Y: %d, Z: %d\n", gyro_offsets[0], gyro_offsets[1], gyro_offsets[2]);
+    g_gyro_calibrated = 1;
+    return true;
 }
 
 // Routine d'interruption (ISR) déclenchée par le MPU6500
@@ -230,7 +290,6 @@ static void init_mpu_interrupt(void)
 void gyro_calib(void)
 {
     mpu_calibrate_gyro(g_gyro_offsets);
-    nvs_save_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets));
 }
 
 void gyro_init()
@@ -250,14 +309,13 @@ void gyro_init()
     gpio_config(&io_conf);
 }
 
-#define HEARTBEAT last_heartbeat = xTaskGetTickCount();
-
 void gyro_control_task(void *pvParameters)
 {
+    g_gyrotask_launched = 0;
     HEARTBEAT
     float clean_roll_rate = 0.0f, clean_pitch_rate = 0.0f, clean_yaw_rate = 0.0f;
     float clean_roll_rate_low = 0.0f, clean_pitch_rate_low = 0.0f, clean_yaw_rate_low = 0.0f;
-    float raw_ax = 0.0f, raw_ay = 0.0f, raw_az = 0.0f;
+    int32_t  raw_rx = 0, raw_ry = 0, raw_rz = 0;
     float clean_ax = 0.0f, clean_ay = 0.0f, clean_az = 0.0f;
 
     gyro_t gyro_data;
@@ -268,12 +326,6 @@ void gyro_control_task(void *pvParameters)
     init_pt1_filter(&filterGyroRoll_kd,  GYRO_KD_CUTOFF_FREQ, GYRO_DT);
     init_pt1_filter(&filterGyroPitch_kd, GYRO_KD_CUTOFF_FREQ, GYRO_DT);
     init_pt1_filter(&filterGyroYaw_kd,   GYRO_KD_CUTOFF_FREQ, GYRO_DT);
-
-    if (nvs_load_struct("gyro_offsets", g_gyro_offsets, sizeof(g_gyro_offsets)) != ESP_OK)
-    {
-        printf("Error loading gyro_offsets\n");
-    }
-
 
     // Check I2C bus and recover if needed
     check_i2c(I2C_SDA_PIN, I2C_SCL_PIN);
@@ -296,6 +348,10 @@ void gyro_control_task(void *pvParameters)
             bool valid = false;
             if (mpu_read_gyro(&gyro_data, g_gyro_offsets) == ESP_OK)
             {
+                raw_rx = gyro_data.rot_x;
+                raw_ry = gyro_data.rot_y;
+                raw_rz = gyro_data.rot_z;
+
                 clean_roll_rate  = gyro_data.rot_x * GYRO_SCALE;
                 clean_pitch_rate = gyro_data.rot_y * GYRO_SCALE;
                 clean_yaw_rate   = gyro_data.rot_z * GYRO_SCALE;
@@ -316,17 +372,17 @@ void gyro_control_task(void *pvParameters)
 
             local_gyro_data.rot_x     = g_invert_accel[0] ? -clean_roll_rate : clean_roll_rate;
             local_gyro_data.rot_x_low = g_invert_accel[0] ? -clean_roll_rate_low : clean_roll_rate_low;
-            local_gyro_data.raw_ax    = g_invert_accel[0] ? -raw_ax : raw_ax;
+            local_gyro_data.raw_rx    = raw_rx;
             local_gyro_data.ax        = g_invert_accel[0] ? -clean_ax : clean_ax;
 
             local_gyro_data.rot_y     = g_invert_accel[1] ? -clean_pitch_rate : clean_pitch_rate;
             local_gyro_data.rot_y_low = g_invert_accel[1] ? -clean_pitch_rate_low : clean_pitch_rate_low;
-            local_gyro_data.raw_ay    = g_invert_accel[1] ? -raw_ay : raw_ay;
+            local_gyro_data.raw_ry    = raw_ry;
             local_gyro_data.ay        = g_invert_accel[1] ? -clean_ay : clean_ay;
 
             local_gyro_data.rot_z     = g_invert_accel[2] ? -clean_yaw_rate : clean_yaw_rate;
             local_gyro_data.rot_z_low = g_invert_accel[2] ? -clean_yaw_rate_low : clean_yaw_rate_low;
-            local_gyro_data.raw_az    = g_invert_accel[2] ? -raw_az : raw_az;
+            local_gyro_data.raw_rz    = raw_rz;
             local_gyro_data.az        = g_invert_accel[2] ? -clean_az : clean_az;
 
             local_gyro_data.temp      = (((float)gyro_data.temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f) * 10.0f; // Convert to °C * 10
@@ -340,6 +396,7 @@ void gyro_control_task(void *pvParameters)
             }
 
             xTaskNotify(servo_task_handle, EVENT_GYRO_VALID, eSetBits);
+            g_gyrotask_launched = 1;
         }
     }
 }
@@ -376,6 +433,13 @@ void gyro_supervisor_task(void *pvParameters) {
     mpu_on();
     
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 20, &gyro_task_handle);
+
+    while (g_gyrotask_launched == 0) {
+        // Wait for the gyro task to start and process data
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+
+    gyro_calib();
 
     while(1) {
         vTaskDelay(pdMS_TO_TICKS(400));

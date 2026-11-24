@@ -14,4 +14,5 @@ void crsf_send_temp(int16_t temp_celsius, int sensor_id);
 void crsf_send_rpm(uint16_t rpm);
 void crsf_send_attitude(int16_t pitch_deg, int16_t roll_deg, int16_t yaw_deg);
 void crsf_send_gps_packet(const crsf_telemetry_gps_t *gps_payload);
+void crsf_send_flightmode(const char *flightmode_str);
 void forward_gps_to_elrs(const ubx_nav_pvt_t *u_blox_data, crsf_telemetry_gps_t *elrs_data);

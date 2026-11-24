@@ -8,7 +8,7 @@ typedef struct
     float rot_x, rot_y, rot_z;             // deg/s
     float rot_x_low, rot_y_low, rot_z_low; // deg/s
     float ax, ay, az;                      // m/s^2
-    float raw_ax, raw_ay, raw_az;          // m/s^2
+    int32_t  raw_rx, raw_ry, raw_rz;       // raw gyro values
     int16_t temp;                          // °C * 10
     char valid;
 } gyro_data_t;

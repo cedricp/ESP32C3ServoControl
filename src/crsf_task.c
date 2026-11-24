@@ -179,7 +179,7 @@ void crsf_task_rx(void *pvParameters)
     }
 }
 
-void send_crsf_volt_array(uint16_t batt1_mv, uint16_t batt2_mv) {
+void crsf_send_volt_array(uint16_t batt1_mv, uint16_t batt2_mv) {
     uint8_t tx_buffer[9];
 
     tx_buffer[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xC8
@@ -305,11 +305,31 @@ void crsf_send_temp(int16_t temp_celsius, int sensor_id)
     frame[4] = (uint8_t)((temp_celsius >> 8) & 0xFF);
     frame[5] = (uint8_t)(temp_celsius & 0xFF);
 
-    // CRC calculé sur Type + Payload (du byte 2 au byte 6 inclus = 5 octets)
     frame[6] = calculate_crc8_crsf(&frame[2], 4);
 
-    // Envoi sur l'UART de télémétrie
     uart_write_bytes(CRSF_UART_PORT, (const char *)frame, sizeof(frame));
+}
+
+void crsf_send_flightmode(const char *flightmode_str)
+{
+    if (!flightmode_str) return;
+
+    size_t payload_len = strlen(flightmode_str) + 1;
+    if (payload_len > 60) return;
+
+    uint8_t frame[CRSF_FRAME_MAX_SIZE];
+
+    frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;        // 0xC8
+    frame[1] = (uint8_t)(payload_len + 2);            // Type (1) + Payload + CRC (1)
+    frame[2] = CRSF_FRAMETYPE_FLIGHT_MODE;            // 0x21
+
+    memcpy(&frame[3], flightmode_str, payload_len);
+
+    size_t crc_input_len = 1 + payload_len;
+    frame[3 + payload_len] = calculate_crc8_crsf(&frame[2], crc_input_len);
+
+    size_t total_len = 3 + payload_len + 1;
+    uart_write_bytes(CRSF_UART_PORT, (const char *)frame, total_len);
 }
 
 void crsf_send_rpm(uint16_t rpm)

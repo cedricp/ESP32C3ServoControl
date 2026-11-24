@@ -222,7 +222,7 @@ IRAM_ATTR void mahony_get_euler(attitude_t *attidude)
         attidude->pitch_deg = rad_to_deg(fast_asinf(sinp));
     }
     // Yaw : -180° to +180° (can drift without magnetometer, OK in relative)
-    // attidude->yawDeg = rad_to_deg(fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)));
+    attidude->yaw_deg = rad_to_deg(fast_atan2f(2.0f * (q0 * q3 + q1 * q2), 1.0f - 2.0f * (q2 * q2 + q3 * q3)));
 }
 
 void init_attitude(attitude_t *attitude, float ax, float ay, float az)

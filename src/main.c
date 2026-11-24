@@ -21,8 +21,8 @@
 
 #include "pid.h"
 
-//#define DEBUG_GYRO 1
-// #define DEBUG_STACK 1
+// #define DEBUG_GYRO
+// #define DEBUG_STACK
 
 /*
  * MPU 6500 Axis reminder
@@ -67,6 +67,8 @@ TaskHandle_t crsf_rx_task_handle   = NULL;
 TaskHandle_t actions_task_handle   = NULL;
 TaskHandle_t telemetry_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle   = NULL;
+
+volatile int32_t g_gyro_calibrated = 0;
 
 PID_Config_t *get_pid_roll(void)
 {
@@ -391,14 +393,14 @@ static inline bool shock_detector(gyro_data_t* gyro_data)
     static float prev_ax = 0.0f, prev_ay = 0.0f, prev_az = 0.0f;
 
     // 1. Acceleration delta
-    const float d_ax = gyro_data->raw_ax - prev_ax;
-    const float d_ay = gyro_data->raw_ay - prev_ay;
-    const float d_az = (gyro_data->raw_az - prev_az) * 0.7f; // Lower Z for landing protection
+    const float d_ax = gyro_data->ax - prev_ax;
+    const float d_ay = gyro_data->ay - prev_ay;
+    const float d_az = (gyro_data->az - prev_az) * 0.7f; // Lower Z for landing protection
 
     // Update for next cycle
-    prev_ax = gyro_data->raw_ax;
-    prev_ay = gyro_data->raw_ay;
-    prev_az = gyro_data->raw_az;
+    prev_ax = gyro_data->ax;
+    prev_ay = gyro_data->ay;
+    prev_az = gyro_data->az;
 
     const float jerk_factor = (d_ax * d_ax) + (d_ay * d_ay) + (d_az * d_az);
 
@@ -507,7 +509,7 @@ void servo_update_task(void *pvParameters)
                 master_kd_gain = (rx_data.norm_values[g_master_kd_gain_channel] + 1.0f) * 0.5f; // Map from [-1, 1] to [0, 1]
                 master_kd_gain *= throttle_pid_attenuation;
             }
-            if (g_flightmode_channel >= 0 && g_flightmode_channel < 12)
+            if (g_flightmode_channel >= 0 && g_flightmode_channel < 12 && g_gyro_calibrated)
             {
                 int fmv = rx_data.us_values[g_flightmode_channel];
                 if (fmv > 1700)
@@ -522,6 +524,8 @@ void servo_update_task(void *pvParameters)
                 {
                     g_flightmode = FLIGHTMODE_FREE;
                 }
+            } else {
+                g_flightmode = FLIGHTMODE_FREE;
             }
             g_elrs_armed = rx_data.us_values[4] > 1600;
         }

@@ -45,6 +45,7 @@ typedef enum
 
 #define CRSF_GPS_PAYLOAD_SIZE sizeof(crsf_telemetry_gps_t)
 #define CRSF_FRAME_SIZE (1 + 1 + 1 + CRSF_GPS_PAYLOAD_SIZE + 1)
+#define CRSF_FRAME_MAX_SIZE 64
 
 // CRSF Telemetry packet header
 typedef struct __attribute__((packed)) {
