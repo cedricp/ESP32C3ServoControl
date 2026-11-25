@@ -20,8 +20,6 @@ static httpd_handle_t g_server_handle = NULL;
 static dns_server_handle_t dns_server_handle = NULL;
 static esp_netif_t *esp_netif_handle = NULL;
 
-#define WIFI_SSID "FLIGHT_STAB"
-
 extern struct system_data_t sysdata;
 
 extern void gyro_calib(void);

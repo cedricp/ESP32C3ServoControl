@@ -66,22 +66,6 @@ TaskHandle_t actions_task_handle   = NULL;
 TaskHandle_t telemetry_task_handle = NULL;
 TaskHandle_t gyro_sv_task_handle   = NULL;
 
-
-PID_Config_t *get_pid_roll(void)
-{
-     return &sysdata.pid_roll;
-}
-
-PID_Config_t *get_pid_pitch(void)
-{
-     return &sysdata.pid_pitch;
-}
-
-PID_Config_t *get_pid_yaw(void)
-{
-    return &sysdata.pid_yaw;
-}
-
 static inline uint32_t __attribute__((always_inline)) us_to_ledc_duty(uint32_t us)
 {
     // return (us * 16384) / 20000;

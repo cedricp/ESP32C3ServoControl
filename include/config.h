@@ -1,5 +1,8 @@
 #pragma once
 
+// WiFi configuration
+#define WIFI_SSID "FLIGHT_STAB"
+
 // CRSF UART configuration
 #define CRSF_UART_PORT      UART_NUM_0
 #define CRSF_RX_PIN         GPIO_NUM_3
