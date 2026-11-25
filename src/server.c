@@ -22,26 +22,7 @@ static esp_netif_t *esp_netif_handle = NULL;
 
 #define WIFI_SSID "FLIGHT_STAB"
 
-extern attitude_t   g_attitude;
-extern int          g_master_kp_gain_channel;
-extern int          g_master_kd_gain_channel;
-extern int          g_instant_trim_channel;
-extern float        g_level_mode_gain;
-extern int          g_flightmode;
-extern int          g_flightmode_channel;
-extern int          g_ouput_mapping[NUM_PWM_OUPUTS];
-extern uint32_t     g_failsafe_us[NUM_PWM_OUPUTS];
-extern bool         g_invert_channel[NUM_PWM_OUPUTS];
-extern uint8_t      g_crash_reasons[4];
-extern float        g_attitude_correction_rp[2];
-extern bool         g_invert_accel[3];
-extern float        g_crash_g_threshold;
-extern uint16_t     g_motor_magnets_count;
-extern float        g_tpa_value;
-
-extern PID_Config_t *get_pid_roll(void);
-extern PID_Config_t *get_pid_pitch(void);
-extern PID_Config_t *get_pid_yaw(void);
+extern struct system_data_t sysdata;
 
 extern void gyro_calib(void);
 extern void init_pid_factory(void);
@@ -105,83 +86,79 @@ esp_err_t config_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    PID_Config_t *g_pidroll_config = get_pid_roll();
-    PID_Config_t *g_pidpitch_config = get_pid_pitch();
-    PID_Config_t *g_pidyaw_config = get_pid_yaw();
-
     // // Roll
     cJSON *item = cJSON_GetObjectItem(json, "roll_kp");
     if (item)
-        g_pidroll_config->Kp = item->valuedouble;
+        sysdata.pid_roll.Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "roll_kd");
     if (item)
-        g_pidroll_config->Kd = item->valuedouble / 100.0;
+        sysdata.pid_roll.Kd = item->valuedouble / 100.0;
     item = cJSON_GetObjectItem(json, "roll_rate");
     if (item)
-        g_pidroll_config->max_rate_degs = item->valuedouble;
+        sysdata.pid_roll.max_rate_degs = item->valuedouble;
 
     // Pitch
     item = cJSON_GetObjectItem(json, "pitch_kp");
     if (item)
-        g_pidpitch_config->Kp = item->valuedouble;
+        sysdata.pid_pitch.Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "pitch_kd");
     if (item)
-        g_pidpitch_config->Kd = item->valuedouble / 100.0;
+        sysdata.pid_pitch.Kd = item->valuedouble / 100.0;
     item = cJSON_GetObjectItem(json, "pitch_rate");
     if (item)
-        g_pidpitch_config->max_rate_degs = item->valuedouble;
+        sysdata.pid_pitch.max_rate_degs = item->valuedouble;
 
     // Yaw
     item = cJSON_GetObjectItem(json, "yaw_kp");
     if (item)
-        g_pidyaw_config->Kp = item->valuedouble;
+        sysdata.pid_yaw.Kp = item->valuedouble;
     item = cJSON_GetObjectItem(json, "yaw_kd");
     if (item)
-        g_pidyaw_config->Kd = item->valuedouble / 100.0;
+        sysdata.pid_yaw.Kd = item->valuedouble / 100.0;
     item = cJSON_GetObjectItem(json, "yaw_rate");
     if (item)
-        g_pidyaw_config->max_rate_degs = item->valuedouble;
+        sysdata.pid_yaw.max_rate_degs = item->valuedouble;
 
     item = cJSON_GetObjectItem(json, "master_kp_gain");
     if (item)
-        g_master_kp_gain_channel = item->valueint;
+        sysdata.master_kp_gain_channel = item->valueint;
 
     item = cJSON_GetObjectItem(json, "master_kd_gain");
     if (item)
-        g_master_kd_gain_channel = item->valueint;
+        sysdata.master_kd_gain_channel = item->valueint;
 
     item = cJSON_GetObjectItem(json, "instant_trim_channel");
     if (item)
-        g_instant_trim_channel = item->valueint;
+        sysdata.instant_trim_channel = item->valueint;
 
     item = cJSON_GetObjectItem(json, "flightmode_channel");
     if (item)
-        g_flightmode_channel = item->valueint;
+        sysdata.flightmode_channel = item->valueint;
 
     item = cJSON_GetObjectItem(json, "invertax");
     if (item)
-        g_invert_accel[0] = item->valueint;
+        sysdata.invert_accel[0] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "invertay");
     if (item)
-        g_invert_accel[1] = item->valueint;
+        sysdata.invert_accel[1] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "invertaz");
     if (item)
-        g_invert_accel[2] = item->valueint;
+        sysdata.invert_accel[2] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "crash_threshold");
     if (item)
-        g_crash_g_threshold = item->valuedouble * item->valuedouble;
+        sysdata.crash_g_threshold = item->valuedouble * item->valuedouble;
 
     item = cJSON_GetObjectItem(json, "tpa");
     if (item)
-        g_tpa_value = item->valuedouble;
+        sysdata.tpa_value = item->valuedouble;
 
     item = cJSON_GetObjectItem(json, "level_mode_gain");
     if (item)
-        g_level_mode_gain = item->valuedouble;
-    
+        sysdata.level_mode_gain = item->valuedouble;
+
     cJSON_Delete(json);
 
     save_pid_config();
@@ -263,65 +240,65 @@ esp_err_t config_postpwm_handler(httpd_req_t *req)
 
     cJSON *item = cJSON_GetObjectItem(json, "channel0");
     if (item)
-        g_ouput_mapping[0] = item->valueint;
+        sysdata.ouput_mapping[0] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel1");
     if (item)
-        g_ouput_mapping[1] = item->valueint;
+        sysdata.ouput_mapping[1] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel2");
     if (item)
-        g_ouput_mapping[2] = item->valueint;
+        sysdata.ouput_mapping[2] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel3");
     if (item)
-        g_ouput_mapping[3] = item->valueint;
+        sysdata.ouput_mapping[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel4");
     if (item && NUM_PWM_OUPUTS > 3)
-        g_ouput_mapping[4] = item->valueint;
+        sysdata.ouput_mapping[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "channel5");
     if (item && NUM_PWM_OUPUTS > 4)
-        g_ouput_mapping[5] = item->valueint;
+        sysdata.ouput_mapping[5] = item->valueint;
 
 
     item = cJSON_GetObjectItem(json, "invert0");
     if (item)
-        g_invert_channel[0] = item->valueint;
+        sysdata.invert_channel[0] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert1");
     if (item)
-        g_invert_channel[1] = item->valueint;
+        sysdata.invert_channel[1] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert2");
     if (item)
-        g_invert_channel[2] = item->valueint;
+        sysdata.invert_channel[2] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert3");
     if (item)
-        g_invert_channel[3] = item->valueint;
+        sysdata.invert_channel[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert4");
     if (item && NUM_PWM_OUPUTS > 3)
-        g_invert_channel[4] = item->valueint;
+        sysdata.invert_channel[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "invert5");
     if (item && NUM_PWM_OUPUTS > 4)
-        g_invert_channel[5] = item->valueint;
+        sysdata.invert_channel[5] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "failsafe0");
     if (item)
-        g_failsafe_us[0] = item->valueint;
+        sysdata.failsafe_us[0] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe1");
     if (item)
-        g_failsafe_us[1] = item->valueint;
+        sysdata.failsafe_us[1] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe2");
     if (item)
-        g_failsafe_us[2] = item->valueint;
+        sysdata.failsafe_us[2] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe3");
     if (item)
-        g_failsafe_us[3] = item->valueint;
+        sysdata.failsafe_us[3] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe4");
     if (item && NUM_PWM_OUPUTS > 3)
-        g_failsafe_us[4] = item->valueint;
+        sysdata.failsafe_us[4] = item->valueint;
     item = cJSON_GetObjectItem(json, "failsafe5");
     if (item && NUM_PWM_OUPUTS > 4)
-        g_failsafe_us[5] = item->valueint;
+        sysdata.failsafe_us[5] = item->valueint;
 
     item = cJSON_GetObjectItem(json, "motor_magnets");
     if (item)
-        g_motor_magnets_count = item->valueint;
+        sysdata.motor_magnets_count = item->valueint;
 
     cJSON_Delete(json);
 
@@ -341,69 +318,65 @@ esp_err_t config_get_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    PID_Config_t *g_pidroll_config = get_pid_roll();
-    PID_Config_t *g_pidpitch_config = get_pid_pitch();
-    PID_Config_t *g_pidyaw_config = get_pid_yaw();
-
     // Axis: Roll
-    cJSON_AddNumberToObject(json, "roll_kp", g_pidroll_config->Kp);
-    cJSON_AddNumberToObject(json, "roll_kd", g_pidroll_config->Kd * 100.0f);
-    cJSON_AddNumberToObject(json, "roll_rate", g_pidroll_config->max_rate_degs);
+    cJSON_AddNumberToObject(json, "roll_kp", sysdata.pid_roll.Kp);
+    cJSON_AddNumberToObject(json, "roll_kd", sysdata.pid_roll.Kd * 100.0f);
+    cJSON_AddNumberToObject(json, "roll_rate", sysdata.pid_roll.max_rate_degs);
 
     // Axis: Pitch
-    cJSON_AddNumberToObject(json, "pitch_kp", g_pidpitch_config->Kp);
-    cJSON_AddNumberToObject(json, "pitch_kd", g_pidpitch_config->Kd * 100.0f);
-    cJSON_AddNumberToObject(json, "pitch_rate", g_pidpitch_config->max_rate_degs);
+    cJSON_AddNumberToObject(json, "pitch_kp", sysdata.pid_pitch.Kp);
+    cJSON_AddNumberToObject(json, "pitch_kd", sysdata.pid_pitch.Kd * 100.0f);
+    cJSON_AddNumberToObject(json, "pitch_rate", sysdata.pid_pitch.max_rate_degs);
 
     // Axis: Yaw
-    cJSON_AddNumberToObject(json, "yaw_kp", g_pidyaw_config->Kp);
-    cJSON_AddNumberToObject(json, "yaw_kd", g_pidyaw_config->Kd * 100.0f);
-    cJSON_AddNumberToObject(json, "yaw_rate", g_pidyaw_config->max_rate_degs);
+    cJSON_AddNumberToObject(json, "yaw_kp", sysdata.pid_yaw.Kp);
+    cJSON_AddNumberToObject(json, "yaw_kd", sysdata.pid_yaw.Kd * 100.0f);
+    cJSON_AddNumberToObject(json, "yaw_rate", sysdata.pid_yaw.max_rate_degs);
 
-    cJSON_AddNumberToObject(json, "master_kp_gain", g_master_kp_gain_channel);
-    cJSON_AddNumberToObject(json, "master_kd_gain", g_master_kd_gain_channel);
-    cJSON_AddNumberToObject(json, "instant_trim_channel", g_instant_trim_channel);
-    cJSON_AddNumberToObject(json, "level_mode_gain", g_level_mode_gain);
+    cJSON_AddNumberToObject(json, "master_kp_gain", sysdata.master_kp_gain_channel);
+    cJSON_AddNumberToObject(json, "master_kd_gain", sysdata.master_kd_gain_channel);
+    cJSON_AddNumberToObject(json, "instant_trim_channel", sysdata.instant_trim_channel);
+    cJSON_AddNumberToObject(json, "level_mode_gain", sysdata.level_mode_gain);
 
-    cJSON_AddNumberToObject(json, "flightmode", g_flightmode);
-    cJSON_AddNumberToObject(json, "flightmode_channel", g_flightmode_channel);
-    cJSON_AddStringToObject(json, "crash_reason", reset_reason_to_str(g_crash_reasons[0]));
+    cJSON_AddNumberToObject(json, "flightmode", sysdata.flightmode);
+    cJSON_AddNumberToObject(json, "flightmode_channel", sysdata.flightmode_channel);
+    cJSON_AddStringToObject(json, "crash_reason", reset_reason_to_str(sysdata.crash_reasons[0]));
 
-    cJSON_AddNumberToObject(json, "channel0", g_ouput_mapping[0]);
-    cJSON_AddNumberToObject(json, "channel1", g_ouput_mapping[1]);
-    cJSON_AddNumberToObject(json, "channel2", g_ouput_mapping[2]);
-    cJSON_AddNumberToObject(json, "channel3", g_ouput_mapping[3]);
+    cJSON_AddNumberToObject(json, "channel0", sysdata.ouput_mapping[0]);
+    cJSON_AddNumberToObject(json, "channel1", sysdata.ouput_mapping[1]);
+    cJSON_AddNumberToObject(json, "channel2", sysdata.ouput_mapping[2]);
+    cJSON_AddNumberToObject(json, "channel3", sysdata.ouput_mapping[3]);
     if (NUM_PWM_OUPUTS > 3)
-        cJSON_AddNumberToObject(json, "channel4", g_ouput_mapping[4]);
+        cJSON_AddNumberToObject(json, "channel4", sysdata.ouput_mapping[4]);
     if (NUM_PWM_OUPUTS > 4)
-        cJSON_AddNumberToObject(json, "channel5", g_ouput_mapping[5]);
+        cJSON_AddNumberToObject(json, "channel5", sysdata.ouput_mapping[5]);
 
-    cJSON_AddNumberToObject(json, "failsafe0", g_failsafe_us[0]);
-    cJSON_AddNumberToObject(json, "failsafe1", g_failsafe_us[1]);
-    cJSON_AddNumberToObject(json, "failsafe2", g_failsafe_us[2]);
-    cJSON_AddNumberToObject(json, "failsafe3", g_failsafe_us[3]);
+    cJSON_AddNumberToObject(json, "failsafe0", sysdata.failsafe_us[0]);
+    cJSON_AddNumberToObject(json, "failsafe1", sysdata.failsafe_us[1]);
+    cJSON_AddNumberToObject(json, "failsafe2", sysdata.failsafe_us[2]);
+    cJSON_AddNumberToObject(json, "failsafe3", sysdata.failsafe_us[3]);
     if (NUM_PWM_OUPUTS > 3)
-        cJSON_AddNumberToObject(json, "failsafe4", g_failsafe_us[4]);
+        cJSON_AddNumberToObject(json, "failsafe4", sysdata.failsafe_us[4]);
     if (NUM_PWM_OUPUTS > 4)
-        cJSON_AddNumberToObject(json, "failsafe5", g_failsafe_us[5]);
+        cJSON_AddNumberToObject(json, "failsafe5", sysdata.failsafe_us[5]);
 
-    cJSON_AddBoolToObject(json, "invert_channel0", g_invert_channel[0]);
-    cJSON_AddBoolToObject(json, "invert_channel1", g_invert_channel[1]);
-    cJSON_AddBoolToObject(json, "invert_channel2", g_invert_channel[2]);
-    cJSON_AddBoolToObject(json, "invert_channel3", g_invert_channel[3]);
+    cJSON_AddBoolToObject(json, "invert_channel0", sysdata.invert_channel[0]);
+    cJSON_AddBoolToObject(json, "invert_channel1", sysdata.invert_channel[1]);
+    cJSON_AddBoolToObject(json, "invert_channel2", sysdata.invert_channel[2]);
+    cJSON_AddBoolToObject(json, "invert_channel3", sysdata.invert_channel[3]);
     if (NUM_PWM_OUPUTS > 3)
-        cJSON_AddBoolToObject(json, "invert_channel4", g_invert_channel[4]);
+        cJSON_AddBoolToObject(json, "invert_channel4", sysdata.invert_channel[4]);
     if (NUM_PWM_OUPUTS > 4)
-        cJSON_AddBoolToObject(json, "invert_channel5", g_invert_channel[5]);
+        cJSON_AddBoolToObject(json, "invert_channel5", sysdata.invert_channel[5]);
 
-    cJSON_AddBoolToObject(json, "invertax", g_invert_accel[0]);
-    cJSON_AddBoolToObject(json, "invertay", g_invert_accel[1]);
-    cJSON_AddBoolToObject(json, "invertaz", g_invert_accel[2]);
+    cJSON_AddBoolToObject(json, "invertax", sysdata.invert_accel[0]);
+    cJSON_AddBoolToObject(json, "invertay", sysdata.invert_accel[1]);
+    cJSON_AddBoolToObject(json, "invertaz", sysdata.invert_accel[2]);
 
-    cJSON_AddNumberToObject(json, "crash_threshold", sqrtf(g_crash_g_threshold));
+    cJSON_AddNumberToObject(json, "crash_threshold", sqrtf(sysdata.crash_g_threshold));
 
-    cJSON_AddNumberToObject(json, "motor_magnets", g_motor_magnets_count);
-    cJSON_AddNumberToObject(json, "tpa", g_tpa_value);
+    cJSON_AddNumberToObject(json, "motor_magnets", sysdata.motor_magnets_count);
+    cJSON_AddNumberToObject(json, "tpa", sysdata.tpa_value);
 
     // 3. Conversion de l'objet JSON en chaîne de caractères (non formatée = plus compacte)
     char *json_str = cJSON_PrintUnformatted(json);
@@ -480,8 +453,8 @@ static esp_err_t rtinfo_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "gy", gyro_data.rot_y_low);
     cJSON_AddNumberToObject(root, "gz", gyro_data.rot_z_low);
 
-    cJSON_AddNumberToObject(root, "att_roll",  g_attitude.roll_deg + g_attitude_correction_rp[0]);
-    cJSON_AddNumberToObject(root, "att_pitch", g_attitude.pitch_deg + g_attitude_correction_rp[1]);
+    cJSON_AddNumberToObject(root, "att_roll",  sysdata.attitude.roll_deg + sysdata.attitude_correction_rp[0]);
+    cJSON_AddNumberToObject(root, "att_pitch", sysdata.attitude.pitch_deg + sysdata.attitude_correction_rp[1]);
 
     cJSON_AddNumberToObject(root, "ch1", g_servo_data.norm_values[0]);
     cJSON_AddNumberToObject(root, "ch2", g_servo_data.norm_values[1]);

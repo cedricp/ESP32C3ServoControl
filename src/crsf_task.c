@@ -11,7 +11,6 @@
 #include "config.h"
 
 SemaphoreHandle_t g_crsf_mutex = NULL;
-extern uint16_t   g_motor_magnets_count;
 
 servo_data_t g_servo_data;
 

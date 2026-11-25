@@ -56,8 +56,6 @@ static TaskHandle_t gyro_task_handle = NULL;
 extern TaskHandle_t servo_task_handle;
 
 static volatile TickType_t last_heartbeat = 0;
-static volatile int32_t    g_gyrotask_launched = 0;
-extern volatile int32_t g_gyro_calibrated;
 
 typedef struct
 {
@@ -73,12 +71,12 @@ int16_t g_gyro_offsets[3] = {0, 0, 0}; // GX, GY, GZ
 static const float GYRO_SCALE     = 1.0f / 65.5f; // LSB/(deg/s) pour ±500dps, cf datasheet
 static const float ACCEL_SCALE_8G = 1.0f / 4096.0f;
 
-extern bool g_invert_accel[3];
-
 // cutoff could be tuned for latency issue (less induces more lag)
 static filter_pt1 filterGyroRoll_kd;
 static filter_pt1 filterGyroPitch_kd;
 static filter_pt1 filterGyroYaw_kd;
+
+extern struct system_data_t sysdata;
 
 static void mpu_i2c_init(void)
 {
@@ -183,7 +181,7 @@ static bool mpu_calibrate_gyro(int16_t *gyro_offsets)
     bool has_prev = false;
     gyro_data_t gyro_data = {0};
     gyro_data_t prev_data = {0};
-    g_gyro_calibrated = 0;
+    sysdata.gyro_calibrated = 0;
 
     ESP_LOGI("MPU", "Gyro calibration... Do not move the model.");
 
@@ -250,7 +248,7 @@ static bool mpu_calibrate_gyro(int16_t *gyro_offsets)
         return false;
     }
 
-    g_gyro_calibrated = 1;
+    sysdata.gyro_calibrated = 1;
     return true;
 }
 
@@ -311,7 +309,7 @@ void gyro_init()
 
 void gyro_control_task(void *pvParameters)
 {
-    g_gyrotask_launched = 0;
+    sysdata.gyrotask_launched = 0;
     HEARTBEAT
     float clean_roll_rate = 0.0f, clean_pitch_rate = 0.0f, clean_yaw_rate = 0.0f;
     float clean_roll_rate_low = 0.0f, clean_pitch_rate_low = 0.0f, clean_yaw_rate_low = 0.0f;
@@ -370,20 +368,20 @@ void gyro_control_task(void *pvParameters)
 
             gyro_data_t local_gyro_data;
 
-            local_gyro_data.rot_x     = g_invert_accel[0] ? -clean_roll_rate : clean_roll_rate;
-            local_gyro_data.rot_x_low = g_invert_accel[0] ? -clean_roll_rate_low : clean_roll_rate_low;
+            local_gyro_data.rot_x     = sysdata.invert_accel[0] ? -clean_roll_rate : clean_roll_rate;
+            local_gyro_data.rot_x_low = sysdata.invert_accel[0] ? -clean_roll_rate_low : clean_roll_rate_low;
             local_gyro_data.raw_rx    = raw_rx;
-            local_gyro_data.ax        = g_invert_accel[0] ? -clean_ax : clean_ax;
+            local_gyro_data.ax        = sysdata.invert_accel[0] ? -clean_ax : clean_ax;
 
-            local_gyro_data.rot_y     = g_invert_accel[1] ? -clean_pitch_rate : clean_pitch_rate;
-            local_gyro_data.rot_y_low = g_invert_accel[1] ? -clean_pitch_rate_low : clean_pitch_rate_low;
+            local_gyro_data.rot_y     = sysdata.invert_accel[1] ? -clean_pitch_rate : clean_pitch_rate;
+            local_gyro_data.rot_y_low = sysdata.invert_accel[1] ? -clean_pitch_rate_low : clean_pitch_rate_low;
             local_gyro_data.raw_ry    = raw_ry;
-            local_gyro_data.ay        = g_invert_accel[1] ? -clean_ay : clean_ay;
+            local_gyro_data.ay        = sysdata.invert_accel[1] ? -clean_ay : clean_ay;
 
-            local_gyro_data.rot_z     = g_invert_accel[2] ? -clean_yaw_rate : clean_yaw_rate;
-            local_gyro_data.rot_z_low = g_invert_accel[2] ? -clean_yaw_rate_low : clean_yaw_rate_low;
+            local_gyro_data.rot_z     = sysdata.invert_accel[2] ? -clean_yaw_rate : clean_yaw_rate;
+            local_gyro_data.rot_z_low = sysdata.invert_accel[2] ? -clean_yaw_rate_low : clean_yaw_rate_low;
             local_gyro_data.raw_rz    = raw_rz;
-            local_gyro_data.az        = g_invert_accel[2] ? -clean_az : clean_az;
+            local_gyro_data.az        = sysdata.invert_accel[2] ? -clean_az : clean_az;
 
             local_gyro_data.temp      = (((float)gyro_data.temp * MPU6500_TEMP_INV_SENSITIVITY) + 21.0f) * 10.0f; // Convert to °C * 10
 
@@ -396,7 +394,7 @@ void gyro_control_task(void *pvParameters)
             }
 
             xTaskNotify(servo_task_handle, EVENT_GYRO_VALID, eSetBits);
-            g_gyrotask_launched = 1;
+            sysdata.gyrotask_launched = 1;
         }
     }
 }
@@ -434,7 +432,7 @@ void gyro_supervisor_task(void *pvParameters) {
     
     xTaskCreate(gyro_control_task, "gyro", 4096, NULL, 20, &gyro_task_handle);
 
-    while (g_gyrotask_launched == 0) {
+    while (sysdata.gyrotask_launched == 0) {
         // Wait for the gyro task to start and process data
         vTaskDelay(pdMS_TO_TICKS(2));
     }

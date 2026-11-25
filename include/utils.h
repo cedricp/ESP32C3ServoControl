@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "config.h"
+#include "pid.h"
 
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
@@ -34,15 +35,15 @@ typedef enum
 
 typedef enum
 {
-    CHANNEL_AILERON,
-    CHANNEL_ELEVATOR,
-    CHANNEL_THROTTLE,
-    CHANNEL_RUDDER,
-    CHANNEL_ARM,
-    CHANNEL_KP_GAIN,
-    CHANNEL_FLIGHTMODE,
-    CHANNEL_KD_GAIN,
-    CHANNEL_INSTANT_TRIM
+    DEFAULT_CHANNEL_AILERON,
+    DEFAULT_CHANNEL_ELEVATOR,
+    DEFAULT_CHANNEL_THROTTLE,
+    DEFAULT_CHANNEL_RUDDER,
+    DEFAULT_CHANNEL_ARM,
+    DEFAULT_CHANNEL_KP_GAIN,
+    DEFAULT_CHANNEL_FLIGHTMODE,
+    DEFAULT_CHANNEL_KD_GAIN,
+    DEFAULT_CHANNEL_INSTANT_TRIM
 } channels_t;
 
 typedef enum {
@@ -69,6 +70,36 @@ typedef struct
 typedef struct {
     int64_t start_us;
 } chrono_t;
+
+struct system_data_t {
+    PID_Config_t pid_roll;
+    PID_Config_t pid_pitch;
+    PID_Config_t pid_yaw;
+
+    const int   servo_gpios[NUM_PWM_OUPUTS];
+    float       attitude_correction_rp[2];
+    uint16_t    motor_magnets_count;
+    uint8_t     crash_reasons[4];
+    attitude_t  attitude;
+    int         master_kp_gain_channel;
+    int         master_kd_gain_channel;
+    int         instant_trim_channel;
+    int         flightmode_channel;
+    int         flightmode;
+    int         ouput_mapping[NUM_PWM_OUPUTS];
+    uint32_t    failsafe_us[NUM_PWM_OUPUTS];
+    bool        invert_channel[NUM_PWM_OUPUTS];
+    bool        invert_accel[3];
+    bool        elrs_armed;
+    bool        elrs_data_valid;
+    float       crash_g_threshold;
+    float       level_mode_gain;
+    float       tpa_value;
+    volatile uint32_t esc_temperature;
+    volatile int16_t  gyro_temperature;
+    volatile int32_t gyro_calibrated;
+    volatile int32_t gyrotask_launched;
+};
 
 static inline void chrono_start(chrono_t *c) {
     c->start_us = esp_timer_get_time();
@@ -195,6 +226,7 @@ inline float __attribute__((always_inline)) fast_asinf(float x)
     return (x < 0.0f) ? -res : res;
 }
 
+// parabolic sine approximation
 inline float __attribute__((always_inline)) fast_sinf(float x)
 {
     // Wrap angle to [-PI, PI]

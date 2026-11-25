@@ -10,18 +10,11 @@
 #include "utils.h"
 #include "pid.h"
 
-extern volatile uint32_t g_esc_temperature;
-extern volatile int16_t  g_gyro_temperature;
+extern struct system_data_t sysdata;
 
-extern uint16_t    g_motor_magnets_count;
-extern attitude_t  g_attitude;
-extern float       g_attitude_correction_rp[2];
-
-extern int g_flightmode;
 static int64_t last_gps_frame_time  = 0;
 static int64_t last_esc_frame_time  = 0;
 static battery_type_t g_battery_type = BATTERY_UNKNOWN;
-extern volatile int32_t g_gyro_calibrated;
 
 #define KISS_FRAME_SIZE 10
 
@@ -128,10 +121,10 @@ static void process_esc()
                                                  esc_telemetry_data.mah, 
                                                  battery_percentage);
                         crsf_send_temp(esc_telemetry_data.temperature * 10, 1);
-                        crsf_send_rpm(esc_telemetry_data.erpm / (g_motor_magnets_count / 2));
+                        crsf_send_rpm(esc_telemetry_data.erpm / (sysdata.motor_magnets_count / 2));
                         
                         last_esc_frame_time = current_time;
-                        g_esc_temperature = esc_telemetry_data.temperature;
+                        sysdata.esc_temperature = esc_telemetry_data.temperature;
                         return;
                     }
                 }
@@ -258,27 +251,27 @@ static void process_gps()
 }
 
 const char* flightmode_to_str(int flightmode_id) {
-    if (g_gyro_calibrated == 0) {
+    if (sysdata.gyro_calibrated == 0) {
         return "UNCAL";
     }
     switch (flightmode_id) {
         case FLIGHTMODE_FREE: return "FREE";
         case FLIGHTMODE_STAB: return "STAB";
-        case FLIGHTMODE_LEVEL: return "LEVEL";
-        default: return "UNKNOWN";
+        case FLIGHTMODE_LEVEL: return "LVL";
+        default: return "NA";
     }
 }
 
 static void process_attitude()
 {
-    crsf_send_attitude((int16_t)(deg_to_rad(g_attitude.pitch_deg + g_attitude_correction_rp[1]) * 10000.0f),
-                       (int16_t)(deg_to_rad(g_attitude.roll_deg  + g_attitude_correction_rp[0]) * 10000.0f),
-                       (int16_t)(deg_to_rad(g_attitude.yaw_deg) * 10000.0f));
+    crsf_send_attitude((int16_t)(deg_to_rad(sysdata.attitude.pitch_deg + sysdata.attitude_correction_rp[1]) * 10000.0f),
+                       (int16_t)(deg_to_rad(sysdata.attitude.roll_deg  + sysdata.attitude_correction_rp[0]) * 10000.0f),
+                       (int16_t)(deg_to_rad(sysdata.attitude.yaw_deg) * 10000.0f));
 }
 
 static void process_gyro_temperature()
 {
-    crsf_send_temp(g_gyro_temperature, 0);
+    crsf_send_temp(sysdata.gyro_temperature, 0);
 }
 
 void telemetry_task(void *pvParameters)
@@ -291,7 +284,7 @@ void telemetry_task(void *pvParameters)
         process_gps();
         if (chrono_elapsed_us(&chrono) > 200000)
         {
-            const char *flightmode_str = flightmode_to_str(g_flightmode);
+            const char *flightmode_str = flightmode_to_str(sysdata.flightmode);
             crsf_send_flightmode(flightmode_str);
             process_attitude();
             process_gyro_temperature();
