@@ -555,6 +555,12 @@ void servo_update_task(void *pvParameters)
                 rx_data.us_values[DEFAULT_CHANNEL_ELEVATOR] = map_to_pwm(compute_axis_pid(0, target_rate_pitch, gyro_data.rot_y, gyro_data.rot_y_low, dt, master_kp_gain, master_kd_gain, &sysdata.pid_pitch, 0));
                 rx_data.us_values[DEFAULT_CHANNEL_RUDDER]   = compute_axis_pwm(&sysdata.pid_yaw, rx_data.norm_values[DEFAULT_CHANNEL_RUDDER], -gyro_data.rot_z, -gyro_data.rot_z_low, master_kp_gain, master_kd_gain, dt);
             }
+            else if (sysdata.flightmode == FLIGHTMODE_STAB)
+            {
+                rx_data.us_values[DEFAULT_CHANNEL_AILERON]  = compute_axis_pwm(&sysdata.pid_roll,  rx_data.norm_values[DEFAULT_CHANNEL_AILERON],  gyro_data.rot_x, gyro_data.rot_x_low, master_kp_gain, master_kd_gain, dt);
+                rx_data.us_values[DEFAULT_CHANNEL_ELEVATOR] = compute_axis_pwm(&sysdata.pid_pitch, rx_data.norm_values[DEFAULT_CHANNEL_ELEVATOR], gyro_data.rot_y, gyro_data.rot_y_low, master_kp_gain, master_kd_gain, dt);
+                rx_data.us_values[DEFAULT_CHANNEL_RUDDER]   = compute_axis_pwm(&sysdata.pid_yaw,   rx_data.norm_values[DEFAULT_CHANNEL_RUDDER],  -gyro_data.rot_z, -gyro_data.rot_z_low, master_kp_gain, master_kd_gain, dt);
+            }
         }
         else if (gyro_data.valid && !rx_data.valid)
         {
